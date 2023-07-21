@@ -34,7 +34,7 @@ class Learner:
     Main class used to train the agent. Called by rpc remote.
     Call run() to start the main training loop.
 
-    Parameters:
+    Args:
         env_name (string): Environment name in gym[atari]
         size (int): The size of the buffer in ReplayBuffer
         B (int): Batch size for training
@@ -540,9 +540,10 @@ class Learner:
         # just pass it in for now
         discount_t = (~dones).float() * discounts
 
+        # compute retrace loss with online bootstrap
         extr_loss = compute_retrace_loss(
-            q_t=q1[:-1],
-            q_t1=target_q1[1:],
+            q_t=q1,
+            q_t1=target_q1[:-1],
             a_t=actions[:-1],
             a_t1=actions[1:],
             r_t=extr,

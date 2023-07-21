@@ -9,7 +9,7 @@ import numpy as np
 from copy import deepcopy
 
 from models import EmbeddingNet
-from .runningmeanstd import RunningMeanStd
+from utils import RunningMeanStd
 
 
 class EpisodicNovelty:

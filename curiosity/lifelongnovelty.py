@@ -7,7 +7,7 @@ import torch.optim as optim
 import numpy as np
 
 from models import ConvNet
-from .runningmeanstd import RunningMeanStd
+from utils import RunningMeanStd
 
 
 class LifelongNovelty:

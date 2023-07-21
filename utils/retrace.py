@@ -89,14 +89,16 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     return rescale(torch.stack(returns, dim=0).detach())
 
 
-def compute_retrace_loss(q_t, q_t1, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, lambda_=0.95, eps=1e-8):
+def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, running_error_std, alpha, lambda_=0.95, eps=1e-8):
     """
+    Implementation of MEME agent Bootstrapping with online network (A1)
+
     Apply inverse of value rescaling before passing into compute_retrace_target()
     Then, apply value rescaling after getting target from compute_retrace_target()
 
     Args:
-        q_t (T, B, action_dim): expected q values at time t
-        q_t1 (T, B, action_dim): target q values at time t+1
+        q_t (T+1, B, action_dim): expected q values at time t
+        q_t1 (T+1, B, action_dim): target q values at time t+1
         a_t (T, B): actions at time t
         a_t1 (T, B): actions at time t+1
         r_t (T, B): rewards at time t
@@ -107,10 +109,10 @@ def compute_retrace_loss(q_t, q_t1, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, la
         eps (int=1e-2): small value to add to mu for numerical stability
 
     """
-    T, B, action_dim = q_t.shape
+    T, B, action_dim = pi_t1.shape
 
-    assert q_t.shape == (T, B, action_dim)
-    assert q_t1.shape == (T, B, action_dim)
+    assert q_t.shape == (T+1, B, action_dim)
+    assert qT_t.shape == (T, B, action_dim)
     assert a_t.shape == (T, B)
     assert a_t1.shape == (T, B)
     assert r_t.shape == (T, B)
@@ -126,12 +128,21 @@ def compute_retrace_loss(q_t, q_t1, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, la
         c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
 
         # get transformed retrace targets
-        target = compute_retrace_target(q_t1, a_t1, r_t, discount_t, c_t1, pi_t1)
+        target = compute_retrace_target(q_t[1:], a_t1, r_t, discount_t, c_t1, pi_t1)
 
     # get expected q value of taking action a_t
-    expected = get_index(q_t, a_t)
+    expected = get_index(q_t[:-1], a_t)
 
-    loss = (target - expected) ** 2
+    # trust region mask
+    with torch.no_grad():
+        diff = q_t[:-1] - qT_t
+        error_std = running_error_std.std()
+        mask = (torch.abs(diff) > alpha * error_std) & (torch.sign(diff) != q_t[:-1] - target)
+
+    td_error = target - expected
+    running_error_std.update(td_error.squeeze().numpy())
+
+    loss = torch.where(mask, 0., td_error ** 2)
     loss = loss.mean()
 
     return loss
