@@ -1,9 +1,6 @@
 # MEME (Efficient Memory-based Exploration agent)
 An unofficial implementation of MEME (Efficient Memory-based Exploration agent) from DeepMind
 
-## From paper (Human-level Atari 200x faster)
-https://arxiv.org/pdf/2209.07550.pdf (Claimed to be 200x faster than Agent57)
-
 ## Learning Curves
 
 ## Features
