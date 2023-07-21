@@ -51,8 +51,8 @@ class Learner:
     discount_max = 0.997
     discount_min = 0.99
 
-    update_every = 1000
-    save_every = 100
+    update_every = 400
+    save_every = 400
     device = "cuda"
 
     bandit_window_size = 90
@@ -315,7 +315,7 @@ class Learner:
 
     def sample_controller(self, episode):
         # update controller's policy index with obtained extrinsic reward
-        idx = self.beta.index(episode.beta)
+        idx = self.betas.index(episode.beta)
         self.controller.update(idx, episode.total_extr)
 
         # sample new policy with new beta and discount
@@ -365,20 +365,20 @@ class Learner:
                 # clear self.request_futures to answer requests
                 # for i in range(len(self.request_rpcs)):
                 #     if self.request_rpcs[i] is not None:
-                #         learning_curves = self.get_action(*self.request_rpcs[i])
+                #         results = self.get_action(*self.request_rpcs[i])
                 #         self.request_rpcs[i] = None
                 #
                 #         future = self.request_futures[i]
                 #         self.request_futures[i] = Future()
-                #         future.set_result(learning_curves)
+                #         future.set_result(results)
 
                 # if self.pending_rpc is not None:
-                #     learning_curves = self.get_action(*self.pending_rpc)
+                #     results = self.get_action(*self.pending_rpc)
                 #     self.pending_rpc = None
                 #
                 #     future = self.future1
                 #     self.future1 = Future()
-                #     future.set_result(learning_curves)
+                #     future.set_result(results)
 
     def prepare_data(self):
         """
@@ -427,7 +427,7 @@ class Learner:
     def update(self, obs, actions, probs, extr, intr, states1, states2, dones, discounts, idxs):
         """
         An update step. Performs a training step, update new recurrent states,
-        soft update target model and transfer weights to eval model
+        hard update target model occasionally and transfer weights to eval model
         """
         loss, new_states1, new_states2 = self.train_step(
             obs=obs.cuda(),
@@ -459,9 +459,15 @@ class Learner:
         # update new states to buffer
         self.priority_queue.put((idxs, new_states1, new_states2, loss, intr_loss, self.epsilon))
 
-        # soft update target model
+        # hard update target model
         if self.updates % self.update_every == 0:
             self.hard_update(self.target_model, self.model)
+
+        # save model
+        if self.updates % self.save_every == 0:
+            self.save(self.model)
+
+        self.updates += 1
 
         # transfer weights to eval model
         with self.lock_model:
@@ -538,12 +544,12 @@ class Learner:
 
         # not sure how variable discounts are trained
         # just pass it in for now
-        discount_t = (~dones).float() * discounts
+        # discount_t = (~dones).float() * discounts
+        discount_t = (~dones).float() * 0.99
 
-        # compute retrace loss with online bootstrap
         extr_loss = compute_retrace_loss(
             q_t=q1,
-            q_t1=target_q1[:-1],
+            q_t1=target_q1[1:],
             a_t=actions[:-1],
             a_t1=actions[1:],
             r_t=extr,
@@ -552,7 +558,7 @@ class Learner:
             discount_t=discount_t
         )
         intr_loss = compute_retrace_loss(
-            q_t=q2[:-1],
+            q_t=q2,
             q_t1=target_q2[1:],
             a_t=actions[:-1],
             a_t1=actions[1:],
@@ -625,4 +631,8 @@ class Learner:
         """
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(param.data)
+
+    @staticmethod
+    def save(source, path="saved/final"):
+        torch.save(source.state_dict(), path)
 
