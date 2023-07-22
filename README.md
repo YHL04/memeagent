@@ -7,7 +7,7 @@ An unofficial implementation of MEME (Efficient Memory-based Exploration agent) 
 
 - [X] Bootstrapping with online network.
 - [ ] Target computation with tolerance.
-- [ ] Loss and priority normalization.
+- [X] Loss and priority normalization.
 - [ ] Cross-mixture training.
 - [ ] Normalizer-free torso network.
 - [ ] Shared torso with combined loss.

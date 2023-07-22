@@ -138,7 +138,7 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
 
     td_error = target - expected
 
-    # trust region mask
+    # trust region mask (A1)
     with torch.no_grad():
         diff = expected - expectedT
         # according to 𝜎 = max(𝜎running, 𝜎batch, 𝜖), assuming batch is std of current td_errors
@@ -147,6 +147,9 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
 
     # update 𝜎running
     running_error.update(td_error.squeeze().cpu().detach().numpy().flatten())
+
+    # loss and priority normalization (B1)
+    td_error = td_error / sigma
 
     loss = torch.where(mask, 0., td_error ** 2)
     loss = loss.mean()
