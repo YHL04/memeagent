@@ -540,12 +540,10 @@ class Learner:
         q1 = torch.stack(q1)
         q2 = torch.stack(q2)
 
-        pi_t1 = F.softmax(q1, dim=-1)
-        pi_t2 = F.softmax(q2, dim=-1)
+        pi_t1 = F.softmax(target_q1, dim=-1)
+        pi_t2 = F.softmax(target_q2, dim=-1)
 
-        # not sure how variable discounts are trained
-        # just pass it in for now
-        # discount_t = (~dones).float() * discounts
+        # placeholder for multiple head MEME model
         discount_t = (~dones).float() * 0.99
 
         extr_loss = compute_retrace_loss(

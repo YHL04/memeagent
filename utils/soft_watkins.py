@@ -80,17 +80,13 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     returns = []
     for t in reversed(range(q_a_t.size(0))):
         g = current[t] + decay[t] * g
-        # g = r_t[t] + discount_t[t] * (exp_q_t[t] - c_t[t] * q_a_t[t] + c_t[t] * g)
-        # g = r_t[t] + discount_t[t] * (exp_q_t[t] - c_t[t] * q_a_t[t]) + discount_t[t] * c_t[t] * g)
-        # g = current[t] + decay * g
         returns.insert(0, g)
 
-    # return torch.stack(returns, dim=0).detach()
     return rescale(torch.stack(returns, dim=0).detach())
 
 
 def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, running_error,
-                         alpha=2., lambda_=0.95, eps=1e-8):
+                         alpha=3., lambda_=0.95, kappa=0.01, eps=1e-8):
     """
     Implementation of MEME agent Bootstrapping with online network (A1)
 
@@ -123,18 +119,24 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
     assert discount_t.shape == (T, B)
 
     with torch.no_grad():
-        # get probability of a_t at time t
-        pi_a_t1 = get_index(pi_t1, a_t)
-
         # compute cutting trace coefficients in retrace
-        c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
+        # from what I understand: c_t1 is a way to correct for off policy samples
+
+        # retrace:
+        # pi_a_t1 = get_index(pi_t1, a_t)
+        # c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
+
+        # soft watkins Q(lambda):
+        q_a_t1 = get_index(q_t[1:], a_t1)
+        indicator = (q_a_t1.unsqueeze(-1) >= q_t[1:] - kappa * torch.abs(q_t[1:])).float()
+        c_t1 = lambda_ * (pi_t1 * indicator).sum(-1)
 
         # get transformed retrace targets
         target = compute_retrace_target(q_t[1:], a_t1, r_t, discount_t, c_t1, pi_t1)
 
     # get expected q value of taking action a_t
     expected = get_index(q_t[:-1], a_t)
-    expectedT = get_index(q_t[:-1], a_t)
+    expectedT = get_index(qT_t, a_t)
 
     td_error = target - expected
 
@@ -151,7 +153,8 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
     # loss and priority normalization (B1)
     td_error = td_error / sigma
 
-    loss = torch.where(mask, 0., td_error ** 2)
+    loss = td_error ** 2
+    loss = torch.where(mask, 0., loss)
     loss = loss.mean()
 
     return loss
