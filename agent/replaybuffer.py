@@ -54,7 +54,7 @@ class ReplayBuffer:
     """
     Replay Buffer will be used inside Learner where start_threads is called
     before the main training the loop. The Learner will asynchronously queue
-    Episodes into the buffer, log the data, and prepare Block for training.
+    Episodes into the buffer, logs the data, and prepare Block for training.
 
     Args:
         size (int): Size of self.buffer
@@ -139,14 +139,14 @@ class ReplayBuffer:
                 self.update_priorities(*data)
 
     def log_data(self):
-        """asynchronously prints out logs and write into file by calling log()"""
+        """asynchronously prints out logs and write into file by calling logs()"""
         while True:
             time.sleep(10)
 
             self.log()
 
     def add(self, episode):
-        """Add Episode to self.buffer and update size, ptr, and log"""
+        """Add Episode to self.buffer and update size, ptr, and logs"""
 
         with self.lock:
 
@@ -158,7 +158,7 @@ class ReplayBuffer:
                 self.frames -= self.buffer[0].length
                 self.buffer.popleft()
 
-            # log
+            # logs
             self.logger.total_frames += episode.length
             self.logger.beta = episode.beta
 
@@ -282,7 +282,7 @@ class ReplayBuffer:
             #     except ValueError:
             #         pass
 
-            # log
+            # logs
             self.logger.total_updates += 1
             self.logger.loss = loss
             self.logger.intr_loss = intr_loss

@@ -23,7 +23,8 @@ from .replaybuffer import ReplayBuffer
 
 from models import Model
 from curiosity import EpisodicNovelty, LifelongNovelty
-from utils import UCB, compute_retrace_loss, \
+from utils import UCB, RunningMeanStd, \
+    compute_retrace_loss, \
     rescale, inv_rescale, \
     get_betas, get_discounts, \
     totensor, toconcat
@@ -133,9 +134,6 @@ class Learner:
         self.return_rpcs = [None for _ in range(N)]
         self.request_rpcs_count = 0
 
-        # self.pending_rpc = None
-        # self.await_rpc = False
-
         self.betas = get_betas(N, self.beta)
         self.discounts = get_discounts(N, self.discount_max, self.discount_min)
 
@@ -151,6 +149,9 @@ class Learner:
                                             betas=self.betas,
                                             discounts=self.discounts
                                             )
+
+        self.e_running_error = RunningMeanStd()
+        self.i_running_error = RunningMeanStd()
 
         self.updates = 0
 
@@ -549,23 +550,25 @@ class Learner:
 
         extr_loss = compute_retrace_loss(
             q_t=q1,
-            q_t1=target_q1[1:],
+            qT_t=target_q1[:-1],
             a_t=actions[:-1],
             a_t1=actions[1:],
             r_t=extr,
             pi_t1=pi_t1[1:],
             mu_t1=probs[1:],
-            discount_t=discount_t
+            discount_t=discount_t,
+            running_error=self.e_running_error,
         )
         intr_loss = compute_retrace_loss(
             q_t=q2,
-            q_t1=target_q2[1:],
+            qT_t=target_q2[:-1],
             a_t=actions[:-1],
             a_t1=actions[1:],
             r_t=intr,
             pi_t1=pi_t2[1:],
             mu_t1=probs[1:],
-            discount_t=discount_t
+            discount_t=discount_t,
+            running_error=self.i_running_error,
         )
 
         loss = extr_loss + intr_loss

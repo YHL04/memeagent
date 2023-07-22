@@ -20,7 +20,8 @@ data = pd.read_csv(latestfile,
                           "IntrLoss",
                           "Reward",
                           "Intrinsic",
-                          "Epsilon"]
+                          "Epsilon",
+                          "Beta"]
                    )
 
 # data["Temp"] = np.arange(len(data["Reward"])) // 50

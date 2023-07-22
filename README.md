@@ -5,7 +5,7 @@ An unofficial implementation of MEME (Efficient Memory-based Exploration agent) 
 
 ## Features
 
-- [ ] Bootstrapping with online network.
+- [X] Bootstrapping with online network.
 - [ ] Target computation with tolerance.
 - [ ] Loss and priority normalization.
 - [ ] Cross-mixture training.

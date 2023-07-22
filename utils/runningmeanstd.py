@@ -13,11 +13,7 @@ class RunningMeanStd:
         self.var = np.ones((1,), dtype=np.float32)
         self.count = 0
 
-        self.deltas = []
-        self.min_size = 10
-
     def update(self, x):
-        assert len(x.shape) == 1
         batch_mean = np.mean(x, axis=0)
         batch_var = np.var(x, axis=0)
 
@@ -35,10 +31,11 @@ class RunningMeanStd:
         M2 = m_a + m_b + np.square(delta) * n
         self.var = M2 / self.count
 
+    def mean(self):
+        return self.mean.item()
+
     def std(self):
-        std = np.sqrt(self.var).item()
-        assert type(std) == float
-        return std
+        return np.sqrt(self.var).item()
 
     def normalize(self, x):
         return (x - self.mean) / np.sqrt(self.var + 1e-8)
