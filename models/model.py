@@ -2,26 +2,8 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-
-class ConvNet(nn.Module):
-
-    def __init__(self):
-        super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.fc = nn.Linear(3456, 512)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = torch.flatten(x, 1)
-        x = F.relu(self.fc(x))
-
-        return x
+from .convnet import ConvNet
 
 
 class SingleModel(nn.Module):
@@ -30,9 +12,9 @@ class SingleModel(nn.Module):
     for R2D2 Agent memory. Head uses dueling architecture.
     """
 
-    def __init__(self, action_size):
+    def __init__(self, action_size, cls=ConvNet):
         super(SingleModel, self).__init__()
-        self.convnet = ConvNet()
+        self.cls = cls(512)
         self.lstm = nn.LSTMCell(512, 512)
 
         self.value = nn.Linear(512, 1)
@@ -56,13 +38,14 @@ class Model(nn.Module):
     Agent57 Model with separate models for intrinsic and extrinsic reward.
     """
 
-    def __init__(self, action_size):
+    def __init__(self, action_size, cls=ConvNet):
         super(Model, self).__init__()
-        self.extr = SingleModel(action_size)
-        self.intr = SingleModel(action_size)
+        self.extr = SingleModel(action_size, cls)
+        self.intr = SingleModel(action_size, cls)
 
     def forward(self, x, state1, state2):
         qe, state1 = self.extr(x, state1)
         qi, state2 = self.intr(x, state2)
 
         return qe, qi, state1, state2
+
