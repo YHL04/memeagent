@@ -25,7 +25,6 @@ from models import Model
 from curiosity import EpisodicNovelty, LifelongNovelty
 from utils import UCB, RunningMeanStd, \
     compute_retrace_loss, \
-    rescale, inv_rescale, \
     get_betas, get_discounts, \
     totensor, toconcat
 
@@ -82,7 +81,7 @@ class Learner:
 
         # models
         self.action_size = gym.make(env_name).action_space.n
-        model = Model(action_size=self.action_size)
+        model = Model(self.N, self.action_size)
 
         # episodic novelty module / lifelong novelty module
         self.episodic_novelty = EpisodicNovelty(N, self.action_size)
@@ -129,7 +128,7 @@ class Learner:
         self.replay_buffer = ReplayBuffer(size=size,
                                           B=B,
                                           T=burnin+rollout,
-                                          beta=self.beta,
+                                          N=N,
                                           sample_queue=self.sample_queue,
                                           batch_queue=self.batch_queue,
                                           priority_queue=self.priority_queue
@@ -154,9 +153,7 @@ class Learner:
 
         self.actor_rref = self.spawn_actors(learner_rref=RRef(self),
                                             env_name=env_name,
-                                            N=self.N,
-                                            betas=self.betas,
-                                            discounts=self.discounts
+                                            N=N,
                                             )
 
         self.e_running_error = RunningMeanStd()
@@ -165,7 +162,7 @@ class Learner:
         self.updates = 0
 
     @staticmethod
-    def spawn_actors(learner_rref, env_name, N, betas, discounts):
+    def spawn_actors(learner_rref, env_name, N):
         """
         Start actor by calling actor.remote().run()
         Actors communicate with learner through rpc and RRef
@@ -186,8 +183,6 @@ class Learner:
                                     args=(learner_rref,
                                           i,
                                           env_name,
-                                          betas[i],
-                                          discounts[i]
                                           ),
                                     timeout=0
                                     )
@@ -231,7 +226,7 @@ class Learner:
         return future
 
     @torch.inference_mode()
-    def get_policy(self, id, obs, state, beta):
+    def get_policy(self, id, obs, state, arm):
         """
         Args:
             id (B,): actor IDs
@@ -252,7 +247,7 @@ class Learner:
 
         with self.lock_model:
             q_values, state = self.eval_model(obs, state)
-            q_values = q_values[torch.arange(B), id]
+            q_values = q_values[torch.arange(B), arm]
 
             intr_e = self.episodic_novelty.get_reward(id, obs)
             intr_l = self.lifelong_novelty.get_reward(obs)
@@ -270,7 +265,7 @@ class Learner:
 
         return action, prob, state, intr
 
-    def get_action(self, id, obs, state, beta):
+    def get_action(self, id, obs, state, arm):
         """
         Convert everything into tensor and into the right shape to pass
         into get_policy() and then convert everything back to numpy.
@@ -285,11 +280,13 @@ class Learner:
             action (np.array)
             prob (np.array)
             state (List(Tuple(np.array))
-            beta (int)
+            arm (int)
         """
         # state1 = List((h, c)) to batched (h, c)
 
         id = torch.tensor(id, device=self.device)
+        arm = torch.tensor(arm, device=self.device)
+
         obs = torch.tensor(np.stack(obs), dtype=torch.float32, device=self.device) / 255.
 
         # list of tuples to size 2 tuple of lists
@@ -297,9 +294,8 @@ class Learner:
         # concatenate lists inside tuple
         state = tuple(map(totensor, tuple(map(toconcat, state))))
         # tuple of two batched tensors
-        beta = torch.tensor(beta, device=self.device)
 
-        action, prob, state, beta = self.get_policy(id, obs, state, beta)
+        action, prob, state, intr = self.get_policy(id, obs, state, arm)
 
         # state = batched (h, c) to List((h, c))
 
@@ -307,18 +303,15 @@ class Learner:
         prob = prob.cpu().numpy()
 
         # convert states to numpy and separate each array into a list
-        state = tuple(map(lambda x: list(np.moveaxis(np.expand_dims(x.cpu().numpy(), 1), 0, 0)), state1))
+        state = tuple(map(lambda x: list(np.moveaxis(np.expand_dims(x.cpu().numpy(), 1), 0, 0)), state))
         # turn tuple of two lists into lists of size 2 tuples
         state = list(map(list, zip(*state)))
 
-        beta = beta.cpu().numpy()
-
-        return action, prob, state, beta
+        return action, prob, state, intr
 
     def sample_controller(self, episode):
-        # update controller's policy index with obtained extrinsic reward
-        idx = self.betas.index(episode.beta)
-        self.controller.update(idx, episode.total_extr)
+        # update controller's arm with obtained extrinsic reward
+        self.controller.update(episode.arm, episode.total_extr)
 
         # sample new policy with new beta and discount
         return self.controller.sample()
@@ -491,16 +484,16 @@ class Learner:
             q_, state = self.model(obs[t], state)
             q.append(q_)
 
-        q = torch.stack(q_)
+        q = torch.stack(q)
 
         pi_t = F.softmax(target_q, dim=-1)
         probs = probs.unsqueeze(-1).repeat(1, 1, self.N)
 
         # (T, B) + (N,) * (T, B) -> (T, B, N)
         # (T, B, 1) + (1, 1, N) * (T, B, 1) -> (T, B, N)
-        rewards = extr.unsqueeze(-1) + self.betas.view(1, 1, self.N) * intr.unsqueeze(-1)
+        rewards = extr.unsqueeze(-1) + self.betas.view(1, 1, self.N).to(extr.device) * intr.unsqueeze(-1)
         # (T, B, 1) * (1, 1, N) -> (T, B, N)
-        discount_t = (~dones).float().unsqeeze(-1) * self.discounts.view(1, 1, self.N)
+        discount_t = (~dones).float().unsqueeze(-1) * self.discounts.view(1, 1, self.N).to(dones.device)
         # (T, B) -> (T, B, N)
         actions = actions.unsqueeze(-1).repeat(1, 1, self.N)
 
@@ -509,6 +502,7 @@ class Learner:
         actions = actions.flatten(1, 2)
         rewards = rewards.flatten(1, 2)
         pi_t = pi_t.flatten(1, 2)
+        probs = probs.flatten(1, 2)
         discount_t = discount_t.flatten(1, 2)
 
         loss = compute_retrace_loss(

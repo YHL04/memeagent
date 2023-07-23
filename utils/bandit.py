@@ -45,7 +45,7 @@ class UCB:
             mean = rewards_sum / (count + 1e-8)
 
             # Calculate values from UCB equation
-            values = mean + self.beta * np.sqrt(1 / count)
+            values = mean + self.beta * np.sqrt(1 / (count + 1e-8))
 
             return np.argmax(values)
 

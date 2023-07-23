@@ -26,6 +26,7 @@ class Actor:
     def __init__(self, learner_rref, id, env_name):
         self.learner_rref = learner_rref
         self.id = id
+        self.arm = id
 
         self.env = Env(env_name)
         self.local_buffer = LocalBuffer()
@@ -44,7 +45,7 @@ class Actor:
             the learner. Future() returns (action, prob, next_state1, next_state2, intr)
 
         """
-        return self.learner_rref.rpc_async().queue_request(self.id, obs, state)
+        return self.learner_rref.rpc_async().queue_request(self.id, obs, state, self.arm)
 
     def return_episode(self, episode):
         """
@@ -79,7 +80,7 @@ class Actor:
             done = False
 
             while not done:
-                action, prob, next_state, intr = self.get_action(obs, state, self.beta).wait()
+                action, prob, next_state, intr = self.get_action(obs, state).wait()
 
                 next_obs, reward, done = self.env.step(action)
 
@@ -88,6 +89,6 @@ class Actor:
                 obs = next_obs
                 state = next_state
 
-            episode = self.local_buffer.finish(time.time()-start, self.beta, self.discount)
-            self.id = self.return_episode(episode).wait()
+            episode = self.local_buffer.finish(self.arm, time.time()-start)
+            self.arm = self.return_episode(episode).wait()
 

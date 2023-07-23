@@ -25,7 +25,7 @@ class Episode:
     states: np.array
     dones: np.array
     length: int
-    id: int
+    arm: int
     total_extr: float
     total_intr: float
     total_time: float
@@ -148,14 +148,14 @@ class ReplayBuffer:
 
             # logs
             self.logger.total_frames += episode.length
-            self.logger.id = episode.id
+            self.logger.arm = episode.arm
 
             # obtain extrinsic reward from purely exploitative policy
-            if episode.id == 0:
+            if episode.arm == 0:
                 self.logger.reward = episode.total_extr
 
             # obtain intrinsic reward from purely exploration policy
-            if episode.id == self.N - 1:
+            if episode.arm == self.N - 1:
                 self.logger.intrinsic = episode.total_intr
 
     def sample_batch(self):
@@ -306,14 +306,14 @@ class LocalBuffer:
         self.intr_buffer.append(intr)
         self.state_buffer.append(state)
 
-    def finish(self, id, total_time):
+    def finish(self, arm, total_time):
         """
         This function is called after episode ends. lists are
         converted into numpy arrays and lists are cleared for
         next episode
 
         Args:
-            id (int): ID of actor
+            arm (int): arm of actor
             total_time (float): total time for actor to complete episode in seconds
 
         """
@@ -355,7 +355,7 @@ class LocalBuffer:
                        states=states,
                        dones=dones,
                        length=length,
-                       id=id,
+                       arm=arm,
                        total_extr=total_extr,
                        total_intr=total_intr,
                        total_time=total_time

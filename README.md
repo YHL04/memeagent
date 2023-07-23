@@ -6,11 +6,11 @@ An unofficial implementation of MEME (Efficient Memory-based Exploration agent) 
 ## Features
 
 - [X] Bootstrapping with online network.
-- [ ] Target computation with tolerance.
-- [X] Loss and priority normalization.
+- [X] Target computation with tolerance. (almost done)
+- [X] Loss and priority normalization. (almost done)
 - [ ] Cross-mixture training.
-- [ ] Normalizer-free torso network.
-- [ ] Shared torso with combined loss.
+- [x] Normalizer-free torso network.
+- [X] Shared torso with combined loss.
 - [ ] Robustifying behavior via policy distillation.
 
 ## Agent57 Original Code

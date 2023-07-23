@@ -9,31 +9,31 @@ from .nfnet import NFNet
 from .gtrxl import GTrXL
 
 
-class SingleModel(nn.Module):
-    """
-    Convolutional Neural Network for Atari with LSTM added on top
-    for R2D2 Agent memory. Head uses dueling architecture.
-    """
-
-    def __init__(self, action_size, cls):
-        super(SingleModel, self).__init__()
-        self.torso = cls(512)
-        self.lstm = nn.LSTMCell(512, 512)
-
-        self.value = nn.Linear(512, 1)
-        self.adv = nn.Linear(512, action_size)
-
-    def forward(self, x, state):
-        x = self.torso(x)
-        x, state = self.lstm(x, state)
-        state = (x, state)
-
-        # Dueling network architecture
-        value = self.value(x)
-        adv = self.adv(x)
-        x = value + (adv - torch.mean(adv, axis=-1, keepdim=True))
-
-        return x, state
+# class SingleModel(nn.Module):
+#     """
+#     Convolutional Neural Network for Atari with LSTM added on top
+#     for R2D2 Agent memory. Head uses dueling architecture.
+#     """
+#
+#     def __init__(self, action_size, cls):
+#         super(SingleModel, self).__init__()
+#         self.torso = cls(512)
+#         self.lstm = nn.LSTMCell(512, 512)
+#
+#         self.value = nn.Linear(512, 1)
+#         self.adv = nn.Linear(512, action_size)
+#
+#     def forward(self, x, state):
+#         x = self.torso(x)
+#         x, state = self.lstm(x, state)
+#         state = (x, state)
+#
+#         # Dueling network architecture
+#         value = self.value(x)
+#         adv = self.adv(x)
+#         x = value + (adv - torch.mean(adv, axis=-1, keepdim=True))
+#
+#         return x, state
 
 
 # class Model(nn.Module):
@@ -56,6 +56,8 @@ class SingleModel(nn.Module):
 class Torso(nn.Module):
 
     def __init__(self, cls):
+        super(Torso, self).__init__()
+
         self.body = cls(512)
         self.lstm = nn.LSTMCell(512, 512)
 
@@ -70,6 +72,8 @@ class Torso(nn.Module):
 class Head(nn.Module):
 
     def __init__(self, action_size):
+        super(Head, self).__init__()
+
         self.linear = nn.Linear(512, 512)
         self.value = nn.Linear(512, 1)
         self.adv = nn.Linear(512, action_size)
@@ -88,12 +92,14 @@ class Model(nn.Module):
     From MEME paper, shared torso with separate heads with combined loss
     """
 
-    def __init__(self, N, action_size, cls):
+    def __init__(self, N, action_size, cls=ConvNet):
+        super(Model, self).__init__()
+
         self.N = N
         self.action_size = action_size
 
         self.torso = Torso(cls)
-        self.heads = [Head(action_size) for _ in range(N)]
+        self.heads = nn.ModuleList([Head(action_size) for _ in range(N)])
 
     def forward(self, x, state):
         """
