@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .convnet import ConvNet
 from .nfnet import NFNet
@@ -54,18 +55,62 @@ class SingleModel(nn.Module):
 
 class Torso(nn.Module):
 
-    def __init__(self):
-        pass
+    def __init__(self, cls):
+        self.body = cls(512)
+        self.lstm = nn.LSTMCell(512, 512)
 
-    def forward(self):
-        pass
+    def forward(self, x, state):
+        x = self.body(x)
+        x, state = self.lstm(x, state)
+        state = (x, state)
+
+        return x, state
+
+
+class Head(nn.Module):
+
+    def __init__(self, action_size):
+        self.linear = nn.Linear(512, 512)
+        self.value = nn.Linear(512, 1)
+        self.adv = nn.Linear(512, action_size)
+
+    def forward(self, x):
+        x = F.gelu(self.linear(x))
+        value = self.value(x)
+        adv = self.adv(x)
+        x = value + (adv - torch.mean(adv, axis=-1, keepdim=True))
+
+        return x
 
 
 class Model(nn.Module):
+    """
+    From MEME paper, shared torso with separate heads with combined loss
+    """
 
-    def __init__(self):
-        pass
+    def __init__(self, N, action_size, cls):
+        self.N = N
+        self.action_size = action_size
 
-    def forward(self):
-        pass
+        self.torso = Torso(cls)
+        self.heads = [Head(action_size) for _ in range(N)]
 
+    def forward(self, x, state):
+        """
+        Args:
+            x (B, C, H, W): batched observations
+            state (Tuple(B, dim)): recurrent state
+
+        Returns:
+            q (B, N, action_size): q values associated with each policy
+            state (Tuple(B, dim)): next recurrent state
+        """
+        x, state = self.torso(x, state)
+
+        q = []
+        for head in self.heads:
+            q.append(head(x))
+
+        q = torch.stack(q).transpose(0, 1)
+
+        return q, state

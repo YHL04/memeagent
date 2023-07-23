@@ -1,5 +1,6 @@
 
 
+import torch
 import numpy as np
 
 
@@ -47,12 +48,12 @@ def get_betas(N, beta):
     """
     Returns a list of betas according to N and beta
     """
-    return [get_beta(i, N, beta) for i in range(N)]
+    return torch.tensor([get_beta(i, N, beta) for i in range(N)])
 
 
 def get_discounts(N, discount_max, discount_min):
     """
     Returns a list of discounts according to N, discount_min, and discount_max
     """
-    return [get_discount(i, N, discount_min, discount_max) for i in range(N)]
+    return torch.tensor([get_discount(i, N, discount_min, discount_max) for i in range(N)])
 

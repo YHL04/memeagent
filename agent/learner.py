@@ -231,20 +231,18 @@ class Learner:
         return future
 
     @torch.inference_mode()
-    def get_policy(self, id, obs, state1, state2, beta):
+    def get_policy(self, id, obs, state, beta):
         """
         Args:
             id (B,): actor IDs
             obs (B, c, h, w): batched observation
-            state1 (Tuple(B, dim)): batched recurrent state 1
-            state2 (Tuple(B, dim)): batched recurrent state 2
+            state (Tuple(B, dim)): batched recurrent state
             beta (B,): each actor beta values
 
         Returns:
             action (B,): action indices
             prob (B,): action probabilities
-            state1 (Tuple(B, dim)): batched recurrent state 1
-            state2 (Tuple(B, dim)): batched recurrent state 2
+            state (Tuple(B, dim)): batched recurrent state
             intr (B,): each actor intrinsic reward
         """
         B = id.size(0)
@@ -253,8 +251,8 @@ class Learner:
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
         with self.lock_model:
-            qe, qi, state1, state2 = self.eval_model(obs, state1, state2)
-            q_values = rescale(inv_rescale(qe) + beta.unsqueeze(-1) * inv_rescale(qi))
+            q_values, state = self.eval_model(obs, state)
+            q_values = q_values[torch.arange(B), id]
 
             intr_e = self.episodic_novelty.get_reward(id, obs)
             intr_l = self.lifelong_novelty.get_reward(obs)
@@ -264,15 +262,15 @@ class Learner:
             action = torch.randint(0, self.action_size, size=(B,))
             prob = torch.full_like(action, self.epsilon / self.action_size)
 
-            return action, prob, state1, state2, intr
+            return action, prob, state, intr
 
         # get action and probability of that action according to Agent57 (pg 19)
         action = torch.argmax(q_values, dim=-1).squeeze()
         prob = torch.full_like(action, 1 - (self.epsilon * ((self.action_size - 1) / self.action_size)))
 
-        return action, prob, state1, state2, intr
+        return action, prob, state, intr
 
-    def get_action(self, id, obs, state1, state2, beta):
+    def get_action(self, id, obs, state, beta):
         """
         Convert everything into tensor and into the right shape to pass
         into get_policy() and then convert everything back to numpy.
@@ -280,15 +278,13 @@ class Learner:
         Args:
             id (List(int)): ID of actor
             obs (List(np.array)): A list of observations in numpy.uint8
-            state1 (List(Tuple(np.array)): A list of tuples of recurrent states in numpy
-            state2 (List(Tuple(np.array)): A list of tuples of recurrent states in numpy
+            state (List(Tuple(np.array)): A list of tuples of recurrent states in numpy
             beta (List(float)): The beta value of the actor
 
         Returns:
             action (np.array)
             prob (np.array)
-            state1 (List(Tuple(np.array))
-            state2 (List(Tuple(np.array))
+            state (List(Tuple(np.array))
             beta (int)
         """
         # state1 = List((h, c)) to batched (h, c)
@@ -297,31 +293,27 @@ class Learner:
         obs = torch.tensor(np.stack(obs), dtype=torch.float32, device=self.device) / 255.
 
         # list of tuples to size 2 tuple of lists
-        state1 = tuple(map(list, zip(*state1)))
-        state2 = tuple(map(list, zip(*state2)))
+        state = tuple(map(list, zip(*state)))
         # concatenate lists inside tuple
-        state1 = tuple(map(totensor, tuple(map(toconcat, state1))))
-        state2 = tuple(map(totensor, tuple(map(toconcat, state2))))
+        state = tuple(map(totensor, tuple(map(toconcat, state))))
         # tuple of two batched tensors
         beta = torch.tensor(beta, device=self.device)
 
-        action, prob, state1, state2, beta = self.get_policy(id, obs, state1, state2, beta)
+        action, prob, state, beta = self.get_policy(id, obs, state, beta)
 
-        # state1 = batched (h, c) to List((h, c))
+        # state = batched (h, c) to List((h, c))
 
         action = action.cpu().numpy()
         prob = prob.cpu().numpy()
 
         # convert states to numpy and separate each array into a list
-        state1 = tuple(map(lambda x: list(np.moveaxis(np.expand_dims(x.cpu().numpy(), 1), 0, 0)), state1))
-        state2 = tuple(map(lambda x: list(np.moveaxis(np.expand_dims(x.cpu().numpy(), 1), 0, 0)), state2))
+        state = tuple(map(lambda x: list(np.moveaxis(np.expand_dims(x.cpu().numpy(), 1), 0, 0)), state1))
         # turn tuple of two lists into lists of size 2 tuples
-        state1 = list(map(list, zip(*state1)))
-        state2 = list(map(list, zip(*state2)))
+        state = list(map(list, zip(*state)))
 
         beta = beta.cpu().numpy()
 
-        return action, prob, state1, state2, beta
+        return action, prob, state, beta
 
     def sample_controller(self, episode):
         # update controller's policy index with obtained extrinsic reward
@@ -329,11 +321,7 @@ class Learner:
         self.controller.update(idx, episode.total_extr)
 
         # sample new policy with new beta and discount
-        new_idx = self.controller.sample()
-        new_beta = self.betas[new_idx]
-        new_discount = self.discounts[new_idx]
-
-        return new_beta, new_discount
+        return self.controller.sample()
 
     def answer_requests(self):
         """
@@ -355,13 +343,6 @@ class Learner:
 
                         self.return_rpcs[i] = None
 
-                # if self.await_rpc:
-                #     self.await_rpc = False
-                #
-                #     future = self.future2
-                #     self.future2 = Future()
-                #     future.set_result(None)
-
                 if self.request_rpcs_count == self.N:
                     results = self.get_action(*list(map(list, (zip(*self.request_rpcs)))))
                     self.request_rpcs = [None for _ in range(self.N)]
@@ -371,24 +352,6 @@ class Learner:
                         future = self.request_futures[i]
                         self.request_futures[i] = Future()
                         future.set_result(result)
-
-                # clear self.request_futures to answer requests
-                # for i in range(len(self.request_rpcs)):
-                #     if self.request_rpcs[i] is not None:
-                #         results = self.get_action(*self.request_rpcs[i])
-                #         self.request_rpcs[i] = None
-                #
-                #         future = self.request_futures[i]
-                #         self.request_futures[i] = Future()
-                #         future.set_result(results)
-
-                # if self.pending_rpc is not None:
-                #     results = self.get_action(*self.pending_rpc)
-                #     self.pending_rpc = None
-                #
-                #     future = self.future1
-                #     self.future1 = Future()
-                #     future.set_result(results)
 
     def prepare_data(self):
         """
@@ -427,28 +390,24 @@ class Learner:
                         probs=block.probs,
                         extr=block.extr,
                         intr=block.intr,
-                        states1=block.states1,
-                        states2=block.states2,
+                        states=block.states,
                         dones=block.dones,
-                        discounts=block.discounts,
                         idxs=block.idxs
                         )
 
-    def update(self, obs, actions, probs, extr, intr, states1, states2, dones, discounts, idxs):
+    def update(self, obs, actions, probs, extr, intr, states, dones, idxs):
         """
         An update step. Performs a training step, update new recurrent states,
         hard update target model occasionally and transfer weights to eval model
         """
-        loss, new_states1, new_states2 = self.train_step(
+        loss, new_states = self.train_step(
             obs=obs.cuda(),
             actions=actions.cuda(),
             probs=probs.cuda(),
             extr=extr.cuda(),
             intr=intr.cuda(),
-            states1=(states1[0].cuda(), states1[1].cuda()),
-            states2=(states2[0].cuda(), states2[1].cuda()),
+            states=(states[0].cuda(), states[1].cuda()),
             dones=dones.cuda(),
-            discounts=discounts.cuda()
         )
         intr_loss = self.train_novelty_step(
             obs=obs.cuda(),
@@ -456,18 +415,13 @@ class Learner:
         )
 
         # reformat List[Tuple(Tensor, Tensor)] to array of shape (bsz, block_len+n_step, 2, dim)
-        states11, states12 = zip(*new_states1)
-        states11 = torch.stack(states11).transpose(0, 1).cpu().numpy()
-        states12 = torch.stack(states12).transpose(0, 1).cpu().numpy()
-        new_states1 = np.stack([states11, states12], 2)
-
-        states21, states22 = zip(*new_states2)
-        states21 = torch.stack(states21).transpose(0, 1).cpu().numpy()
-        states22 = torch.stack(states22).transpose(0, 1).cpu().numpy()
-        new_states2 = np.stack([states21, states22], 2)
+        states1, states2 = zip(*new_states)
+        states1 = torch.stack(states1).transpose(0, 1).cpu().numpy()
+        states2 = torch.stack(states2).transpose(0, 1).cpu().numpy()
+        new_states = np.stack([states1, states2], 2)
 
         # update new states to buffer
-        self.priority_queue.put((idxs, new_states1, new_states2, loss, intr_loss, self.epsilon))
+        self.priority_queue.put((idxs, new_states, loss, intr_loss, self.epsilon))
 
         # hard update target model
         if self.updates % self.update_every == 0:
@@ -487,7 +441,7 @@ class Learner:
 
         return loss, intr_loss
 
-    def train_step(self, obs, actions, probs, extr, intr, states1, states2, dones, discounts):
+    def train_step(self, obs, actions, probs, extr, intr, states, dones):
         """
         Accumulate gradients to increase batch size
         Gradients are cached for n_accumulate steps before optimizer.step()
@@ -498,94 +452,83 @@ class Learner:
             probs (block+1, B): probs
             extr (block, B): extrinsic rewards
             intr (block, B): extrinsic rewards
-            states1 (B, dim): recurrent states
-            states2 (B, dim): recurrent states
+            states (B, dim): recurrent states
             dones (block+1, B): boolean indicating episode termination
 
         Returns:
             loss (float): Loss of critic model
             bert_loss (float): Loss of bert masked language modeling
-            new_states1 (B, dim): for lstm
-            new_states2 (B, dim): for lstm
+            new_states (B, dim): for lstm
         """
 
         with torch.no_grad():
-            state1 = (states1[0].detach().clone(), states1[1].detach().clone())
-            state2 = (states2[0].detach().clone(), states2[1].detach().clone())
+            state = (states[0].detach().clone(), states[1].detach().clone())
 
-            new_states1, new_states2 = [], []
+            new_states = []
             for t in range(self.burnin):
-                new_states1.append((state1[0].detach(), state1[1].detach()))
-                new_states2.append((state2[0].detach(), state2[1].detach()))
+                new_states.append((state[0].detach(), state[1].detach()))
 
-                _, _, state1, state2 = self.target_model(obs[t], state1, state2)
+                _, state = self.target_model(obs[t], state)
 
-            target_q1, target_q2 = [], []
+            target_q = []
             for t in range(self.burnin, self.T+1):
-                new_states1.append((state1[0].detach(), state1[1].detach()))
-                new_states2.append((state2[0].detach(), state2[1].detach()))
+                new_states.append((state[0].detach(), state[1].detach()))
 
-                target_q1_, target_q2_, state1, state2 = self.target_model(obs[t], state1, state2)
-                target_q1.append(target_q1_)
-                target_q2.append(target_q2_)
+                target_q_, state = self.target_model(obs[t], state)
+                target_q.append(target_q_)
 
-            target_q1 = torch.stack(target_q1)
-            target_q2 = torch.stack(target_q2)
+            target_q = torch.stack(target_q)
 
         self.model.zero_grad()
 
-        state1 = (states1[0].detach().clone(), states1[1].detach().clone())
-        state2 = (states2[0].detach().clone(), states2[1].detach().clone())
+        state = (states[0].detach().clone(), states[1].detach().clone())
 
         for t in range(self.burnin):
-            _, _, state1, state2 = self.model(obs[t], state1, state2)
+            _, state = self.model(obs[t], state)
 
-        q1, q2 = [], []
+        q = []
         for t in range(self.burnin, self.T+1):
-            q1_, q2_, state1, state2 = self.model(obs[t], state1, state2)
-            q1.append(q1_)
-            q2.append(q2_)
+            q_, state = self.model(obs[t], state)
+            q.append(q_)
 
-        q1 = torch.stack(q1)
-        q2 = torch.stack(q2)
+        q = torch.stack(q_)
 
-        pi_t1 = F.softmax(target_q1, dim=-1)
-        pi_t2 = F.softmax(target_q2, dim=-1)
+        pi_t = F.softmax(target_q, dim=-1)
+        probs = probs.unsqueeze(-1).repeat(1, 1, self.N)
 
-        # placeholder for multiple head MEME model
-        discount_t = (~dones).float() * 0.99
+        # (T, B) + (N,) * (T, B) -> (T, B, N)
+        # (T, B, 1) + (1, 1, N) * (T, B, 1) -> (T, B, N)
+        rewards = extr.unsqueeze(-1) + self.betas.view(1, 1, self.N) * intr.unsqueeze(-1)
+        # (T, B, 1) * (1, 1, N) -> (T, B, N)
+        discount_t = (~dones).float().unsqeeze(-1) * self.discounts.view(1, 1, self.N)
+        # (T, B) -> (T, B, N)
+        actions = actions.unsqueeze(-1).repeat(1, 1, self.N)
 
-        extr_loss = compute_retrace_loss(
-            q_t=q1,
-            qT_t=target_q1[:-1],
+        q = q.flatten(1, 2)
+        target_q = target_q.flatten(1, 2)
+        actions = actions.flatten(1, 2)
+        rewards = rewards.flatten(1, 2)
+        pi_t = pi_t.flatten(1, 2)
+        discount_t = discount_t.flatten(1, 2)
+
+        loss = compute_retrace_loss(
+            q_t=q,
+            qT_t=target_q[:-1],
             a_t=actions[:-1],
             a_t1=actions[1:],
-            r_t=extr,
-            pi_t1=pi_t1[1:],
+            r_t=rewards,
+            pi_t1=pi_t[1:],
             mu_t1=probs[1:],
             discount_t=discount_t,
             running_error=self.e_running_error,
         )
-        intr_loss = compute_retrace_loss(
-            q_t=q2,
-            qT_t=target_q2[:-1],
-            a_t=actions[:-1],
-            a_t1=actions[1:],
-            r_t=intr,
-            pi_t1=pi_t2[1:],
-            mu_t1=probs[1:],
-            discount_t=discount_t,
-            running_error=self.i_running_error,
-        )
-
-        loss = extr_loss + intr_loss
 
         self.opt.zero_grad()
         loss.backward()
         self.opt.step()
 
         loss = loss.item()
-        return loss, new_states1, new_states2
+        return loss, new_states
 
     def train_novelty_step(self, obs, actions):
         emb_loss = self.train_emb_step(obs, actions)

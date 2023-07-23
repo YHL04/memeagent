@@ -153,7 +153,7 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
     # loss and priority normalization (B1)
     td_error = td_error / sigma
 
-    loss = td_error ** 2
+    loss = 0.5 * (td_error ** 2)
     loss = torch.where(mask, 0., loss)
     loss = loss.mean()
 

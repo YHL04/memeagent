@@ -17,39 +17,34 @@ class Actor:
 
     Args:
         learner_rref (RRef): Learner RRef to reference the learner
-        id (int): ID of the actor
+        id (int): ID of the actor representing which policy ~ N policies
         env_name (string): Environment name
         beta (float): initial beta value of actor
         discount (float): initial discount value of actor
     """
 
-    def __init__(self, learner_rref, id, env_name, beta, discount):
+    def __init__(self, learner_rref, id, env_name):
         self.learner_rref = learner_rref
         self.id = id
-
-        self.beta = beta
-        self.discount = discount
 
         self.env = Env(env_name)
         self.local_buffer = LocalBuffer()
 
-    def get_action(self, obs, state1, state2, beta):
+    def get_action(self, obs, state):
         """
         Uses learner RRef and rpc async to call queue_request to get action
         from learner.
 
         Args:
             obs (List[np.array]): frames with shape (batch_size, n_channels, h, w)
-            state1 (List[np.array]): recurrent states with shape (batch_size, state_len, d_model)
-            state2 (List[np.array]): recurrent states with shape (batch_size, state_len, d_model)
-            beta (List[np.array]): array of betas associated with each obs
+            state (List[np.array]): recurrent states with shape (batch_size, state_len, d_model)
 
         Returns:
             Future() object that when used with .wait(), halts until value is ready from
             the learner. Future() returns (action, prob, next_state1, next_state2, intr)
 
         """
-        return self.learner_rref.rpc_async().queue_request(self.id, obs, state1, state2, beta)
+        return self.learner_rref.rpc_async().queue_request(self.id, obs, state)
 
     def return_episode(self, episode):
         """
@@ -57,7 +52,6 @@ class Actor:
         to call return_episode to return Episode object to learner for training.
 
         Args:
-            id (int): Actor ID
             episode (Episode): Finished episode
 
         Returns:
@@ -79,26 +73,21 @@ class Actor:
 
         while True:
             obs = self.env.reset()
-            state1 = (np.zeros((1, 512)), np.zeros((1, 512)))
-            state2 = (np.zeros((1, 512)), np.zeros((1, 512)))
+            state = (np.zeros((1, 512)), np.zeros((1, 512)))
 
             start = time.time()
             done = False
 
             while not done:
-                action, prob, next_state1, next_state2, intr = self.get_action(obs, state1, state2, self.beta).wait()
+                action, prob, next_state, intr = self.get_action(obs, state, self.beta).wait()
 
                 next_obs, reward, done = self.env.step(action)
 
-                self.local_buffer.add(obs, action, prob, reward, intr,
-                                      tuple(map(tosqueeze, state1)),
-                                      tuple(map(tosqueeze, state2))
-                                      )
+                self.local_buffer.add(obs, action, prob, reward, intr, tuple(map(tosqueeze, state)))
 
                 obs = next_obs
-                state1 = next_state1
-                state2 = next_state2
+                state = next_state
 
             episode = self.local_buffer.finish(time.time()-start, self.beta, self.discount)
-            self.beta, self.discount = self.return_episode(episode).wait()
+            self.id = self.return_episode(episode).wait()
 

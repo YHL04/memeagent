@@ -22,12 +22,10 @@ class Episode:
     probs: np.array
     extr: np.array
     intr: np.array
-    states1: np.array
-    states2: np.array
+    states: np.array
     dones: np.array
     length: int
-    beta: float
-    discount: float
+    id: int
     total_extr: float
     total_intr: float
     total_time: float
@@ -43,10 +41,8 @@ class Block:
     probs: torch.tensor
     extr: torch.tensor
     intr: torch.tensor
-    states1: torch.tensor
-    states2: torch.tensor
+    states: torch.tensor
     dones: torch.tensor
-    discounts: torch.tensor
     idxs: List[List[int]]
 
 
@@ -60,29 +56,21 @@ class ReplayBuffer:
         size (int): Size of self.buffer
         B (int): Training batch size
         T (int): Time step length of blocks
-        discount (float): Gamma constant for next q in q learning
-        beta (float): Maximum beta value in Never Give Up agent
+        N (int): N value in Never Give Up agent
         sample_queue (mp.Queue): FIFO queue to store Episode into ReplayBuffer
         batch_queue (mp.Queue): FIFO queue to sample batches for training from ReplayBuffer
         priority_queue (mp.Queue): FIFO queue to update new recurrent states from training to ReplayBuffer
 
     """
 
-    def __init__(self,
-                 size,
-                 B,
-                 T,
-                 beta,
-                 sample_queue,
-                 batch_queue,
-                 priority_queue
+    def __init__(self, size, B, T, N,
+                 sample_queue, batch_queue, priority_queue
                  ):
 
         self.size = size
         self.B = B
         self.T = T
-
-        self.beta = beta
+        self.N = N
 
         self.lock = threading.Lock()
         self.sample_queue = sample_queue
@@ -160,14 +148,14 @@ class ReplayBuffer:
 
             # logs
             self.logger.total_frames += episode.length
-            self.logger.beta = episode.beta
+            self.logger.id = episode.id
 
             # obtain extrinsic reward from purely exploitative policy
-            if episode.beta == 0:
+            if episode.id == 0:
                 self.logger.reward = episode.total_extr
 
             # obtain intrinsic reward from purely exploration policy
-            if episode.beta == self.beta:
+            if episode.id == self.N - 1:
                 self.logger.intrinsic = episode.total_intr
 
     def sample_batch(self):
@@ -188,10 +176,8 @@ class ReplayBuffer:
             probs = []
             extr = []
             intr = []
-            states1 = []
-            states2 = []
+            states = []
             dones = []
-            discounts = []
             idxs = []
 
             for _ in range(self.B):
@@ -204,10 +190,8 @@ class ReplayBuffer:
                 obs.append(self.buffer[buffer_idx].obs[time_idx:time_idx+self.T+1])
                 actions.append(self.buffer[buffer_idx].actions[time_idx:time_idx+self.T+1])
                 probs.append(self.buffer[buffer_idx].probs[time_idx:time_idx+self.T+1])
-                states1.append(self.buffer[buffer_idx].states1[time_idx])
-                states2.append(self.buffer[buffer_idx].states2[time_idx])
+                states.append(self.buffer[buffer_idx].states[time_idx])
                 dones.append(self.buffer[buffer_idx].dones[time_idx:time_idx+self.T])
-                discounts.append(self.buffer[buffer_idx].discount)
 
             obs = torch.tensor(np.stack(obs), dtype=torch.float32) / 255.
             actions = torch.tensor(np.stack(actions), dtype=torch.int32)
@@ -216,13 +200,10 @@ class ReplayBuffer:
             extr = torch.tensor(np.stack(extr), dtype=torch.float32)
             intr = torch.tensor(np.stack(intr), dtype=torch.float32)
 
-            states1 = torch.tensor(np.stack(states1), dtype=torch.float32)
-            states2 = torch.tensor(np.stack(states2), dtype=torch.float32)
-            states1 = (states1[:, 0, :], states1[:, 1, :])
-            states2 = (states2[:, 0, :], states2[:, 1, :])
+            states = torch.tensor(np.stack(states), dtype=torch.float32)
+            states = (states[:, 0, :], states[:, 1, :])
 
             dones = torch.tensor(np.stack(dones), dtype=torch.bool)
-            discounts = torch.tensor(np.stack(discounts), dtype=torch.float32)
 
             obs = obs.transpose(0, 1)
             actions = actions.transpose(0, 1)
@@ -236,26 +217,22 @@ class ReplayBuffer:
             assert probs.shape == (self.T+1, self.B)
             assert extr.shape == (self.T, self.B)
             assert intr.shape == (self.T, self.B)
-            assert states1[0].shape == (self.B, 512) and states1[1].shape == (self.B, 512)
-            assert states2[0].shape == (self.B, 512) and states2[1].shape == (self.B, 512)
+            assert states[0].shape == (self.B, 512) and states[1].shape == (self.B, 512)
             assert dones.shape == (self.T, self.B)
-            assert discounts.shape == (self.B,)
 
             block = Block(obs=obs,
                           actions=actions,
                           probs=probs,
                           extr=extr,
                           intr=intr,
-                          states1=states1,
-                          states2=states2,
+                          states=states,
                           dones=dones,
-                          discounts=discounts,
                           idxs=idxs
                           )
 
         return block
 
-    def update_priorities(self, idxs, states1, states2, loss, intr_loss, epsilon):
+    def update_priorities(self, idxs, states, loss, intr_loss, epsilon):
         """
         Update recurrent states from new recurrent states obtained during training
         with most up-to-date model weights
@@ -263,8 +240,7 @@ class ReplayBuffer:
         Args:
             idxs (List[List[buffer_idx, time_idx]]): indices of states
         """
-        assert states1.shape == (self.B, self.T+1, 2, 512)
-        assert states2.shape == (self.B, self.T+1, 2, 512)
+        assert states.shape == (self.B, self.T+1, 2, 512)
 
         with self.lock:
 
@@ -310,17 +286,17 @@ class LocalBuffer:
         self.prob_buffer = []
         self.extr_buffer = []
         self.intr_buffer = []
-        self.state1_buffer = []
-        self.state2_buffer = []
+        self.state_buffer = []
 
-    def add(self, obs, action, prob, extr, intr, state1, state2):
+    def add(self, obs, action, prob, extr, intr, state):
         """
         This function is called after every time step to store data into list
 
         Args:
             obs (Array): observed frame
             action (float): recorded action
-            reward (float): recorded reward
+            extr (float): recorded extrinsic reward
+            intr (float): recorded intrinsic reward
             state (Array): recurrent state before model newly generated recurrent state
         """
         self.obs_buffer.append(obs)
@@ -328,19 +304,17 @@ class LocalBuffer:
         self.prob_buffer.append(prob)
         self.extr_buffer.append(extr)
         self.intr_buffer.append(intr)
-        self.state1_buffer.append(state1)
-        self.state2_buffer.append(state2)
+        self.state_buffer.append(state)
 
-    def finish(self, total_time, beta, discount):
+    def finish(self, id, total_time):
         """
         This function is called after episode ends. lists are
         converted into numpy arrays and lists are cleared for
         next episode
 
         Args:
+            id (int): ID of actor
             total_time (float): total time for actor to complete episode in seconds
-            beta (float): beta associated with that episode
-            discount (float): discount associated with that episode
 
         """
 
@@ -355,8 +329,7 @@ class LocalBuffer:
         probs = np.stack(self.prob_buffer).astype(np.float32)
         extr = np.stack(self.extr_buffer).astype(np.float32)
         intr = np.stack(self.intr_buffer).astype(np.float32)
-        states1 = np.stack(self.state1_buffer).astype(np.float32)
-        states2 = np.stack(self.state2_buffer).astype(np.float32)
+        states = np.stack(self.state_buffer).astype(np.float32)
 
         dones = np.zeros_like(extr)
         dones[-1] = 1
@@ -372,20 +345,17 @@ class LocalBuffer:
         self.prob_buffer.clear()
         self.extr_buffer.clear()
         self.intr_buffer.clear()
-        self.state1_buffer.clear()
-        self.state2_buffer.clear()
+        self.state_buffer.clear()
 
         return Episode(obs=obs,
                        actions=actions,
                        probs=probs,
                        extr=extr,
                        intr=intr,
-                       states1=states1,
-                       states2=states2,
+                       states=states,
                        dones=dones,
                        length=length,
-                       beta=beta,
-                       discount=discount,
+                       id=id,
                        total_extr=total_extr,
                        total_intr=total_intr,
                        total_time=total_time
