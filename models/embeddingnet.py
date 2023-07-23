@@ -3,6 +3,8 @@
 import torch.nn as nn
 
 from .convnet import ConvNet
+from .nfnet import NFNet
+from .gtrxl import GTrXL
 
 
 class EmbeddingNet(nn.Module):
@@ -22,7 +24,7 @@ class EmbeddingNet(nn.Module):
         )
 
     def forward(self, obs):
-        emb = self.convnet(obs)
+        emb = self.torso(obs)
         return emb
 
     def inverse(self, emb):

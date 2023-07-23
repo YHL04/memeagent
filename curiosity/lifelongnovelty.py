@@ -4,8 +4,6 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-import numpy as np
-
 from models import ConvNet
 from utils import RunningMeanStd
 
@@ -17,11 +15,11 @@ class LifelongNovelty:
                  L=5,
                  device="cuda"):
 
-        self.predictor = ConvNet().to(device)
-        self.target = ConvNet().to(device)
+        self.predictor = ConvNet(512).to(device)
+        self.target = ConvNet(512).to(device)
 
-        self.eval_predictor = ConvNet().to(device)
-        self.eval_target = ConvNet().to(device)
+        self.eval_predictor = ConvNet(512).to(device)
+        self.eval_target = ConvNet(512).to(device)
 
         self.opt = optim.Adam(self.predictor.parameters(), lr=lr)
 

@@ -47,7 +47,11 @@ class Learner:
     epsilon_min = 0.1
     epsilon_decay = 0.0001
 
-    lr = 1e-4
+    lr = 3e-4
+    weight_decay = 0.05
+    adam_betas = (0.9, 0.999)
+    adam_eps = 1e-8
+
     beta = 0.3
     discount_max = 0.997
     discount_min = 0.99
@@ -103,7 +107,12 @@ class Learner:
         self.T = burnin + rollout
 
         # optimizer and loss functions
-        self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
+        self.opt = optim.Adam(self.model.parameters(),
+                              lr=self.lr,
+                              betas=self.adam_betas,
+                              eps=self.adam_eps,
+                              weight_decay=self.weight_decay
+                              )
 
         # queues
         self.sample_queue = mp.Queue()

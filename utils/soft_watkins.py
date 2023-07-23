@@ -86,7 +86,7 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
 
 
 def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, running_error,
-                         alpha=3., lambda_=0.95, kappa=0.01, eps=1e-8):
+                         alpha=2., lambda_=0.95, kappa=0.01, eps=1e-8):
     """
     Implementation of MEME agent Bootstrapping with online network (A1)
 
@@ -158,13 +158,4 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
     loss = loss.mean()
 
     return loss
-
-
-if __name__ == "__main__":
-    T, B, action_dim = 3, 2, 4
-
-    x = torch.ones((T, B, action_dim))
-    y = torch.ones((T, B))
-
-    loss = compute_retrace_loss(x, x, y, y, y, x, x, y)
 
