@@ -106,12 +106,13 @@ class Learner:
         self.T = burnin + rollout
 
         # optimizer and loss functions
-        self.opt = optim.Adam(self.model.parameters(),
-                              lr=self.lr,
-                              betas=self.adam_betas,
-                              eps=self.adam_eps,
-                              weight_decay=self.weight_decay
-                              )
+        # self.opt = optim.Adam(self.model.parameters(),
+        #                       lr=self.lr,
+        #                       betas=self.adam_betas,
+        #                       eps=self.adam_eps,
+        #                       weight_decay=self.weight_decay
+        #                       )
+        self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
 
         # queues
         self.sample_queue = mp.Queue()
@@ -180,10 +181,7 @@ class Learner:
         for i in range(N):
             actor_rref = rpc.remote(f"actor{i}",
                                     Actor,
-                                    args=(learner_rref,
-                                          i,
-                                          env_name,
-                                          ),
+                                    args=(learner_rref, i, env_name),
                                     timeout=0
                                     )
             actor_rref.remote().run()
@@ -232,7 +230,7 @@ class Learner:
             id (B,): actor IDs
             obs (B, c, h, w): batched observation
             state (Tuple(B, dim)): batched recurrent state
-            beta (B,): each actor beta values
+            arm (B,): each actor's bandit arm
 
         Returns:
             action (B,): action indices
@@ -260,7 +258,7 @@ class Learner:
             return action, prob, state, intr
 
         # get action and probability of that action according to Agent57 (pg 19)
-        action = torch.argmax(q_values, dim=-1).squeeze()
+        action = torch.argmax(q_values, dim=-1)
         prob = torch.full_like(action, 1 - (self.epsilon * ((self.action_size - 1) / self.action_size)))
 
         return action, prob, state, intr
@@ -274,7 +272,7 @@ class Learner:
             id (List(int)): ID of actor
             obs (List(np.array)): A list of observations in numpy.uint8
             state (List(Tuple(np.array)): A list of tuples of recurrent states in numpy
-            beta (List(float)): The beta value of the actor
+            arm (List(float)): The bandit arm of the actor
 
         Returns:
             action (np.array)
@@ -341,6 +339,10 @@ class Learner:
                     self.request_rpcs = [None for _ in range(self.N)]
                     self.request_rpcs_count = 0
 
+                    # future = self.request_futures[0]
+                    # self.request_futures[0] = Future()
+                    # future.set_result(results)
+
                     for i, result in enumerate(zip(*results)):
                         future = self.request_futures[i]
                         self.request_futures[i] = Future()
@@ -378,33 +380,26 @@ class Learner:
                 time.sleep(0.001)
             block = self.batch_data.pop(0)
 
-            self.update(obs=block.obs,
-                        actions=block.actions,
-                        probs=block.probs,
-                        extr=block.extr,
-                        intr=block.intr,
-                        states=block.states,
-                        dones=block.dones,
-                        idxs=block.idxs
-                        )
+            self.update(block)
 
-    def update(self, obs, actions, probs, extr, intr, states, dones, idxs):
+    def update(self, block):
         """
         An update step. Performs a training step, update new recurrent states,
         hard update target model occasionally and transfer weights to eval model
         """
         loss, new_states = self.train_step(
-            obs=obs.cuda(),
-            actions=actions.cuda(),
-            probs=probs.cuda(),
-            extr=extr.cuda(),
-            intr=intr.cuda(),
-            states=(states[0].cuda(), states[1].cuda()),
-            dones=dones.cuda(),
+            obs=block.obs.cuda(),
+            actions=block.actions.cuda(),
+            probs=block.probs.cuda(),
+            extr=block.extr.cuda(),
+            intr=block.intr.cuda(),
+            states=(block.states[0].cuda(), block.states[1].cuda()),
+            dones=block.dones.cuda(),
+            arms=block.arms.cuda()
         )
         intr_loss = self.train_novelty_step(
-            obs=obs.cuda(),
-            actions=actions.cuda()
+            obs=block.obs.cuda(),
+            actions=block.actions.cuda()
         )
 
         # reformat List[Tuple(Tensor, Tensor)] to array of shape (bsz, block_len+n_step, 2, dim)
@@ -414,7 +409,7 @@ class Learner:
         new_states = np.stack([states1, states2], 2)
 
         # update new states to buffer
-        self.priority_queue.put((idxs, new_states, loss, intr_loss, self.epsilon))
+        self.priority_queue.put((block.idxs, new_states, loss, intr_loss, self.epsilon))
 
         # hard update target model
         if self.updates % self.update_every == 0:
@@ -434,19 +429,20 @@ class Learner:
 
         return loss, intr_loss
 
-    def train_step(self, obs, actions, probs, extr, intr, states, dones):
+    def train_step(self, obs, actions, probs, extr, intr, states, dones, arms):
         """
         Accumulate gradients to increase batch size
         Gradients are cached for n_accumulate steps before optimizer.step()
 
         Args:
-            obs (block+1, B, channels, h, w]): tokens
-            actions (block+1, B): actions
-            probs (block+1, B): probs
-            extr (block, B): extrinsic rewards
-            intr (block, B): extrinsic rewards
+            obs (T+1, B, channels, h, w]): tokens
+            actions (T+1, B): actions
+            probs (T+1, B): probs
+            extr (T, B): extrinsic rewards
+            intr (T, B): extrinsic rewards
             states (B, dim): recurrent states
-            dones (block+1, B): boolean indicating episode termination
+            dones (T+1, B): boolean indicating episode termination
+            arms (B,): arm index of each batch sample
 
         Returns:
             loss (float): Loss of critic model
@@ -494,16 +490,19 @@ class Learner:
         rewards = extr.unsqueeze(-1) + self.betas.view(1, 1, self.N).to(extr.device) * intr.unsqueeze(-1)
         # (T, B, 1) * (1, 1, N) -> (T, B, N)
         discount_t = (~dones).float().unsqueeze(-1) * self.discounts.view(1, 1, self.N).to(dones.device)
+        # discount_t = (~dones).float().unsqueeze(-1).repeat(1, 1, self.N) * 0.99
+        # discount_t = (~dones).float() * 0.99
+
         # (T, B) -> (T, B, N)
         actions = actions.unsqueeze(-1).repeat(1, 1, self.N)
 
-        q = q.flatten(1, 2)
-        target_q = target_q.flatten(1, 2)
-        actions = actions.flatten(1, 2)
-        rewards = rewards.flatten(1, 2)
-        pi_t = pi_t.flatten(1, 2)
-        probs = probs.flatten(1, 2)
-        discount_t = discount_t.flatten(1, 2)
+        # q = q.flatten(1, 2)
+        # target_q = target_q.flatten(1, 2)
+        # actions = actions.flatten(1, 2)
+        # rewards = rewards.flatten(1, 2)
+        # pi_t = pi_t.flatten(1, 2)
+        # probs = probs.flatten(1, 2)
+        # discount_t = discount_t.flatten(1, 2)
 
         loss = compute_retrace_loss(
             q_t=q,
@@ -514,6 +513,7 @@ class Learner:
             pi_t1=pi_t[1:],
             mu_t1=probs[1:],
             discount_t=discount_t,
+            arms=arms,
             running_error=self.e_running_error,
         )
 

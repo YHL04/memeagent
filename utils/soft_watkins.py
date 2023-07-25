@@ -20,14 +20,14 @@ def get_index(x, idx):
     Returns:
         indexed (T, B): indexed tensor
     """
-    T, B, action_dim = x.shape
-    assert idx.shape == (T, B)
+    action_dim = x.size(-1)
+    idx_shape = idx.shape
 
     x = x.reshape(-1, action_dim)
     idx = idx.reshape(-1)
 
     indexed = x[torch.arange(x.size(0)), idx]
-    indexed = indexed.view(T, B)
+    indexed = indexed.view(*idx_shape)
 
     return indexed
 
@@ -74,8 +74,6 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     current = r_t + discount_t * (exp_q_t - c_t * q_a_t)
     decay = discount_t * c_t
 
-    # g = current[-1]
-    # returns = [g]
     g = q_a_t[-1]
     returns = []
     for t in reversed(range(q_a_t.size(0))):
@@ -85,13 +83,17 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     return rescale(torch.stack(returns, dim=0).detach())
 
 
-def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, running_error,
-                         alpha=2., lambda_=0.95, kappa=0.01, eps=1e-8):
+def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, arms, running_error,
+                         alpha=3., lambda_=0.95, kappa=0.01, n=0.5, eps=1e-8):
     """
-    Implementation of MEME agent Bootstrapping with online network (A1)
+    Implementation of MEME agent Bootstrapping with online network (A1),
+    Loss and priority normalization (B1), and cross mixture training (B2)
 
     Apply inverse of value rescaling before passing into compute_retrace_target()
     Then, apply value rescaling after getting target from compute_retrace_target()
+
+    TODO:
+        Integrate combined loss with normalization and mask
 
     Args:
         q_t (T+1, B, action_dim): expected q values at time t
@@ -102,34 +104,38 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
         pi_t1 (T, B, action_dim): online model action probs at time t+1
         mu_t1 (T, B, action_dim): target model action probs at time t+1
         discount_t (T, B): discount factor
-        alpha (float=2.): alpha constant in MEME paper, value not specified so set to 2. for now
+        alpha (float=2.): value not specified in paper so set to 3. for now
+                          (higher value = faster learning, lower value = more stable learning)
         lambda_ (int=0.95): lambda constant for retrace loss
+        kappa (int=0.01):
+        n (int=0.5):
         eps (int=1e-2): small value to add to mu for numerical stability
 
     """
-    T, B, action_dim = pi_t1.shape
+    T, B, N, action_dim = qT_t.shape
 
-    assert q_t.shape == (T+1, B, action_dim)
-    assert qT_t.shape == (T, B, action_dim)
-    assert a_t.shape == (T, B)
-    assert a_t1.shape == (T, B)
-    assert r_t.shape == (T, B)
-    assert pi_t1.shape == (T, B, action_dim)
-    assert mu_t1.shape == (T, B)
-    assert discount_t.shape == (T, B)
+    assert q_t.shape == (T+1, B, N, action_dim)
+    assert qT_t.shape == (T, B, N, action_dim)
+    assert a_t.shape == (T, B, N)
+    assert a_t1.shape == (T, B, N)
+    assert r_t.shape == (T, B, N)
+    assert pi_t1.shape == (T, B, N, action_dim)
+    assert mu_t1.shape == (T, B, N)
+    assert discount_t.shape == (T, B, N)
+    assert arms.shape == (B,)
 
     with torch.no_grad():
         # compute cutting trace coefficients in retrace
         # from what I understand: c_t1 is a way to correct for off policy samples
 
         # retrace:
-        # pi_a_t1 = get_index(pi_t1, a_t)
-        # c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
+        pi_a_t1 = get_index(pi_t1, a_t)
+        c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
 
         # soft watkins Q(lambda):
-        q_a_t1 = get_index(q_t[1:], a_t1)
-        indicator = (q_a_t1.unsqueeze(-1) >= q_t[1:] - kappa * torch.abs(q_t[1:])).float()
-        c_t1 = lambda_ * (pi_t1 * indicator).sum(-1)
+        # q_a_t1 = get_index(q_t[1:], a_t1)
+        # indicator = (q_a_t1.unsqueeze(-1) >= q_t[1:] - kappa * torch.abs(q_t[1:])).float()
+        # c_t1 = lambda_ * (pi_t1 * indicator).sum(-1)
 
         # get transformed retrace targets
         target = compute_retrace_target(q_t[1:], a_t1, r_t, discount_t, c_t1, pi_t1)
@@ -151,10 +157,13 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ru
     running_error.update(td_error.squeeze().cpu().detach().numpy().flatten())
 
     # loss and priority normalization (B1)
-    td_error = td_error / sigma
+    # td_error = td_error / sigma
 
     loss = 0.5 * (td_error ** 2)
-    loss = torch.where(mask, 0., loss)
+
+    # Cross mixture loss (B2)
+    loss = n * get_index(loss, arms.unsqueeze(0).repeat(T, 1)) + ((1-n) / N) * loss.sum(-1)
+    # loss = torch.where(mask, 0., loss)
     loss = loss.mean()
 
     return loss

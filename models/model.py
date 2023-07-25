@@ -74,12 +74,17 @@ class Head(nn.Module):
     def __init__(self, action_size):
         super(Head, self).__init__()
 
-        self.linear = nn.Linear(512, 512)
+        self.linear1 = nn.Linear(512, 512)
+        self.linear2 = nn.Linear(512, 512)
+
         self.value = nn.Linear(512, 1)
         self.adv = nn.Linear(512, action_size)
 
     def forward(self, x):
-        x = F.gelu(self.linear(x))
+        x = F.gelu(self.linear1(x))
+        x = F.gelu(self.linear2(x))
+
+        # Dueling architecture
         value = self.value(x)
         adv = self.adv(x)
         x = value + (adv - torch.mean(adv, axis=-1, keepdim=True))
@@ -103,6 +108,9 @@ class Model(nn.Module):
 
     def forward(self, x, state):
         """
+        TODO:
+            parallelize heads using nn.conv2d
+
         Args:
             x (B, C, H, W): batched observations
             state (Tuple(B, dim)): recurrent state
@@ -115,7 +123,8 @@ class Model(nn.Module):
 
         q = []
         for head in self.heads:
-            q.append(head(x))
+            _q = head(x)
+            q.append(_q)
 
         q = torch.stack(q).transpose(0, 1)
 

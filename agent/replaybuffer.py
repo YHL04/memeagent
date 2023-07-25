@@ -43,6 +43,7 @@ class Block:
     intr: torch.tensor
     states: torch.tensor
     dones: torch.tensor
+    arms: torch.tensor
     idxs: List[List[int]]
 
 
@@ -178,6 +179,7 @@ class ReplayBuffer:
             intr = []
             states = []
             dones = []
+            arms = []
             idxs = []
 
             for _ in range(self.B):
@@ -192,6 +194,7 @@ class ReplayBuffer:
                 probs.append(self.buffer[buffer_idx].probs[time_idx:time_idx+self.T+1])
                 states.append(self.buffer[buffer_idx].states[time_idx])
                 dones.append(self.buffer[buffer_idx].dones[time_idx:time_idx+self.T])
+                arms.append(self.buffer[buffer_idx].arm)
 
             obs = torch.tensor(np.stack(obs), dtype=torch.float32) / 255.
             actions = torch.tensor(np.stack(actions), dtype=torch.int32)
@@ -204,6 +207,7 @@ class ReplayBuffer:
             states = (states[:, 0, :], states[:, 1, :])
 
             dones = torch.tensor(np.stack(dones), dtype=torch.bool)
+            arms = torch.tensor(arms, dtype=torch.int32)
 
             obs = obs.transpose(0, 1)
             actions = actions.transpose(0, 1)
@@ -219,6 +223,7 @@ class ReplayBuffer:
             assert intr.shape == (self.T, self.B)
             assert states[0].shape == (self.B, 512) and states[1].shape == (self.B, 512)
             assert dones.shape == (self.T, self.B)
+            assert arms.shape == (self.B,)
 
             block = Block(obs=obs,
                           actions=actions,
@@ -227,6 +232,7 @@ class ReplayBuffer:
                           intr=intr,
                           states=states,
                           dones=dones,
+                          arms=arms,
                           idxs=idxs
                           )
 

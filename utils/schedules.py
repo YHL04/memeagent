@@ -32,12 +32,15 @@ def get_discount(i, N, discount_max, discount_min):
     Args:
         i (int): ID of actor associated with a combination of beta and discount
         N (int): N constant representing total different combinations of betas and discount
-        discount_min (float): Minimum discount value
         discount_max (float): Maximum discount value
+        discount_min (float): Minimum discount value
 
     Returns:
         discount (float): discount associated with each env
     """
+    if N == 1:
+        return discount_max
+
     numerator = (N - 1 - i) * np.log(1 - discount_max) + i * np.log(1 - discount_min)
     denominator = N - 1
 

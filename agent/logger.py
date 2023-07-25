@@ -20,6 +20,7 @@ class Logger:
         self.intr_loss = 0
         self.reward = 0
         self.intrinsic = 0
+        self.epsilon = 0
         self.arm = 0
 
         self.start = time.time()
