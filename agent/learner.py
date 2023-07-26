@@ -100,13 +100,13 @@ class Learner:
         self.T = burnin + rollout
 
         # optimizer and loss functions
-        self.opt = optim.Adam(self.model.parameters(),
-                              lr=self.lr,
-                              betas=self.adam_betas,
-                              eps=self.adam_eps,
-                              weight_decay=self.weight_decay
-                              )
-        # self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
+        # self.opt = optim.Adam(self.model.parameters(),
+        #                       lr=self.lr,
+        #                       betas=self.adam_betas,
+        #                       eps=self.adam_eps,
+        #                       weight_decay=self.weight_decay
+        #                       )
+        self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
 
         # queues
         self.sample_queue = mp.Queue()
