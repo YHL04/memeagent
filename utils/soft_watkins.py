@@ -1,6 +1,7 @@
 
 
 import torch
+import torch.nn.functional as F
 
 from .value_rescale import rescale, inv_rescale
 
@@ -84,7 +85,7 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
 
 
 def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, arms, running_error,
-                         alpha=3., lambda_=0.95, kappa=0.01, n=0.5, eps=1e-8):
+                         alpha=3., lambda_=0.95, kappa=0.01, n=0.5, c_kl=0.5, eps=1e-8):
     """
     Implementation of MEME agent Bootstrapping with online network (A1),
     Loss and priority normalization (B1), and cross mixture training (B2)
@@ -101,7 +102,7 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
         a_t (T, B): actions at time t
         a_t1 (T, B): actions at time t+1
         r_t (T, B): rewards at time t
-        pi_t1 (T, B, action_dim): online model action probs at time t+1
+        pi_t1 (T, B, action_dim): target model policy head probs at time t+1
         mu_t1 (T, B, action_dim): target model action probs at time t+1
         discount_t (T, B): discount factor
         alpha (float=2.): value not specified in paper so set to 3. for now
@@ -109,6 +110,7 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
         lambda_ (int=0.95): lambda constant for retrace loss
         kappa (int=0.01):
         n (int=0.5):
+        c_kl (int=0.5): Max KL for policy distillation
         eps (int=1e-2): small value to add to mu for numerical stability
 
     """
@@ -160,11 +162,27 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
     # td_error = td_error / sigma
 
     loss = 0.5 * (td_error ** 2)
+    # loss = torch.where(mask, 0., loss)
 
     # Cross mixture loss (B2)
     loss = n * get_index(loss, arms.unsqueeze(0).repeat(T, 1)) + ((1-n) / N) * loss.sum(-1)
-    # loss = torch.where(mask, 0., loss)
     loss = loss.mean()
 
     return loss
+
+
+def compute_policy_loss(q_t, pi_t, piT_t, c_kl=0.5):
+    """
+    Policy Distillation (D). To combat policy churn according to MEME paper.
+    """
+    action_size = q_t.size(-1)
+    q_onehot = F.one_hot(torch.argmax(q_t, dim=-1), num_classes=action_size)
+
+    p_loss = -(q_onehot * torch.log(pi_t)).sum(-1)
+
+    mask = (F.kl_div(piT_t, pi_t, reduction="none").sum(-1) > c_kl)
+    p_loss = torch.where(mask, 0., p_loss)
+    p_loss = p_loss.mean()
+
+    return p_loss
 

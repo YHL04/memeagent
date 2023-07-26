@@ -25,6 +25,7 @@ from models import Model
 from curiosity import EpisodicNovelty, LifelongNovelty
 from utils import UCB, RunningMeanStd, \
     compute_retrace_loss, \
+    compute_policy_loss, \
     get_betas, get_discounts, \
     totensor, toconcat
 
@@ -46,7 +47,7 @@ class Learner:
     epsilon_min = 0.1
     epsilon_decay = 0.0001
 
-    lr = 3e-4
+    lr = 1e-4
     weight_decay = 0.05
     adam_betas = (0.9, 0.999)
     adam_eps = 1e-8
@@ -54,6 +55,7 @@ class Learner:
     beta = 0.3
     discount_max = 0.997
     discount_min = 0.99
+    tau = 0.25
 
     update_every = 400
     save_every = 400
@@ -244,8 +246,8 @@ class Learner:
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
         with self.lock_model:
-            q_values, state = self.eval_model(obs, state)
-            q_values = q_values[torch.arange(B), arm]
+            _, pi, state = self.eval_model(obs, state)
+            pi = pi[torch.arange(B), arm]
 
             intr_e = self.episodic_novelty.get_reward(id, obs)
             intr_l = self.lifelong_novelty.get_reward(obs)
@@ -258,7 +260,7 @@ class Learner:
             return action, prob, state, intr
 
         # get action and probability of that action according to Agent57 (pg 19)
-        action = torch.argmax(q_values, dim=-1)
+        action = torch.argmax(pi, dim=-1)
         prob = torch.full_like(action, 1 - (self.epsilon * ((self.action_size - 1) / self.action_size)))
 
         return action, prob, state, intr
@@ -338,10 +340,6 @@ class Learner:
                     results = self.get_action(*list(map(list, (zip(*self.request_rpcs)))))
                     self.request_rpcs = [None for _ in range(self.N)]
                     self.request_rpcs_count = 0
-
-                    # future = self.request_futures[0]
-                    # self.request_futures[0] = Future()
-                    # future.set_result(results)
 
                     for i, result in enumerate(zip(*results)):
                         future = self.request_futures[i]
@@ -459,63 +457,61 @@ class Learner:
 
                 _, state = self.target_model(obs[t], state)
 
-            target_q = []
+            target_q, target_pi = [], []
             for t in range(self.burnin, self.T+1):
                 new_states.append((state[0].detach(), state[1].detach()))
 
-                target_q_, state = self.target_model(obs[t], state)
+                target_q_, target_pi_, state = self.target_model(obs[t], state)
                 target_q.append(target_q_)
+                target_pi.append(target_pi_)
 
             target_q = torch.stack(target_q)
+            target_pi = torch.stack(target_pi)
 
         self.model.zero_grad()
 
         state = (states[0].detach().clone(), states[1].detach().clone())
 
         for t in range(self.burnin):
-            _, state = self.model(obs[t], state)
+            _, _, state = self.model(obs[t], state)
 
-        q = []
+        q, pi = [], []
         for t in range(self.burnin, self.T+1):
-            q_, state = self.model(obs[t], state)
+            q_, pi_, state = self.model(obs[t], state)
             q.append(q_)
+            pi.append(pi_)
 
         q = torch.stack(q)
+        pi = torch.stack(pi)
 
-        pi_t = F.softmax(target_q, dim=-1)
+        pi = F.softmax(torch.log(pi) / self.tau, dim=-1)
+        target_pi = F.softmax(torch.log(target_pi) / self.tau, dim=-1)
+
         probs = probs.unsqueeze(-1).repeat(1, 1, self.N)
-
-        # (T, B) + (N,) * (T, B) -> (T, B, N)
-        # (T, B, 1) + (1, 1, N) * (T, B, 1) -> (T, B, N)
         rewards = extr.unsqueeze(-1) + self.betas.view(1, 1, self.N).to(extr.device) * intr.unsqueeze(-1)
-        # (T, B, 1) * (1, 1, N) -> (T, B, N)
         discount_t = (~dones).float().unsqueeze(-1) * self.discounts.view(1, 1, self.N).to(dones.device)
-        # discount_t = (~dones).float().unsqueeze(-1).repeat(1, 1, self.N) * 0.99
-        # discount_t = (~dones).float() * 0.99
-
-        # (T, B) -> (T, B, N)
         actions = actions.unsqueeze(-1).repeat(1, 1, self.N)
 
-        # q = q.flatten(1, 2)
-        # target_q = target_q.flatten(1, 2)
-        # actions = actions.flatten(1, 2)
-        # rewards = rewards.flatten(1, 2)
-        # pi_t = pi_t.flatten(1, 2)
-        # probs = probs.flatten(1, 2)
-        # discount_t = discount_t.flatten(1, 2)
-
-        loss = compute_retrace_loss(
+        q_loss = compute_retrace_loss(
             q_t=q,
             qT_t=target_q[:-1],
             a_t=actions[:-1],
             a_t1=actions[1:],
             r_t=rewards,
-            pi_t1=pi_t[1:],
+            pi_t1=target_pi[1:],
             mu_t1=probs[1:],
             discount_t=discount_t,
             arms=arms,
             running_error=self.e_running_error,
         )
+
+        p_loss = compute_policy_loss(
+            q_t=q,
+            pi_t=pi,
+            piT_t=target_pi
+        )
+
+        loss = q_loss + p_loss
 
         self.opt.zero_grad()
         loss.backward()
