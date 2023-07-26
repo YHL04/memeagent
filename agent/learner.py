@@ -65,21 +65,13 @@ class Learner:
     bandit_beta = 1.0
     bandit_epsilon = 0.5
 
-    def __init__(self,
-                 env_name,
-                 N,
-                 size,
-                 B,
-                 burnin,
-                 rollout
-                 ):
+    def __init__(self, env_name, N, B, size, burnin, rollout):
         torch.manual_seed(0)
         np.random.seed(0)
         random.seed(0)
 
+        self.N, self.B = N, B
         self.size = size
-        self.B = B
-        self.N = N
 
         # models
         self.action_size = gym.make(env_name).action_space.n
@@ -108,13 +100,13 @@ class Learner:
         self.T = burnin + rollout
 
         # optimizer and loss functions
-        # self.opt = optim.Adam(self.model.parameters(),
-        #                       lr=self.lr,
-        #                       betas=self.adam_betas,
-        #                       eps=self.adam_eps,
-        #                       weight_decay=self.weight_decay
-        #                       )
-        self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
+        self.opt = optim.Adam(self.model.parameters(),
+                              lr=self.lr,
+                              betas=self.adam_betas,
+                              eps=self.adam_eps,
+                              weight_decay=self.weight_decay
+                              )
+        # self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
 
         # queues
         self.sample_queue = mp.Queue()
@@ -159,8 +151,7 @@ class Learner:
                                             N=N,
                                             )
 
-        self.e_running_error = RunningMeanStd()
-        self.i_running_error = RunningMeanStd()
+        self.running_errors = [RunningMeanStd() for _ in range(N)]
 
         self.updates = 0
 
@@ -502,7 +493,7 @@ class Learner:
             mu_t1=probs[1:],
             discount_t=discount_t,
             arms=arms,
-            running_error=self.e_running_error,
+            running_errors=self.running_errors,
         )
 
         p_loss = compute_policy_loss(
@@ -515,6 +506,7 @@ class Learner:
 
         self.opt.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5.)
         self.opt.step()
 
         loss = loss.item()

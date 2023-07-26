@@ -14,8 +14,8 @@ def run_worker(
     rank,
     env_name,
     num_actors,
-    buffer_size,
     batch_size,
+    buffer_size,
     burnin,
     rollout
 ):
@@ -43,8 +43,8 @@ def run_worker(
             Learner,
             args=(env_name,
                   num_actors,
-                  buffer_size,
                   batch_size,
+                  buffer_size,
                   burnin,
                   rollout
                   ),
@@ -65,8 +65,8 @@ def run_worker(
 
 def main(env_name,
          num_actors,
-         buffer_size,
          batch_size,
+         buffer_size,
          burnin,
          rollout,
          ):
@@ -78,8 +78,8 @@ def main(env_name,
         run_worker,
         args=(env_name,
               num_actors,
-              buffer_size,
               batch_size,
+              buffer_size,
               burnin,
               rollout
               ),
@@ -91,8 +91,8 @@ def main(env_name,
 if __name__ == "__main__":
     main(env_name="BreakoutDeterministic-v4",
          num_actors=2,
-         buffer_size=400_000,
          batch_size=64,
+         buffer_size=400_000,
          burnin=0,
          rollout=10
          )

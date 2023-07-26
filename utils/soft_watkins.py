@@ -84,8 +84,8 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     return rescale(torch.stack(returns, dim=0).detach())
 
 
-def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, arms, running_error,
-                         alpha=3., lambda_=0.95, kappa=0.01, n=0.5, c_kl=0.5, eps=1e-8):
+def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, arms, running_errors,
+                         alpha=3., lambda_=0.95, kappa=0.01, n=0.5, eps=1e-8):
     """
     Implementation of MEME agent Bootstrapping with online network (A1),
     Loss and priority normalization (B1), and cross mixture training (B2)
@@ -134,7 +134,7 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
         pi_a_t1 = get_index(pi_t1, a_t)
         c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
 
-        # soft watkins Q(lambda):
+        # soft watkins Q(lambda): except that not all values are expected value
         # q_a_t1 = get_index(q_t[1:], a_t1)
         # indicator = (q_a_t1.unsqueeze(-1) >= q_t[1:] - kappa * torch.abs(q_t[1:])).float()
         # c_t1 = lambda_ * (pi_t1 * indicator).sum(-1)
@@ -152,14 +152,20 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
     with torch.no_grad():
         diff = expected - expectedT
         # according to 𝜎 = max(𝜎running, 𝜎batch, 𝜖), assuming batch is std of current td_errors
-        sigma = max(running_error.std(), td_error.std().item(), 0.01)
-        mask = (torch.abs(diff) > alpha * sigma) & (torch.sign(diff) != expected - target)
+        # sigma = max(running_error.std(), td_error.std().item(), 0.01)
+        running_stds = torch.tensor([x.std() for x in running_errors], device=diff.device)
+        batch_stds = td_error.view(-1, N).std(dim=0)
+
+        sigma = torch.maximum(torch.maximum(running_stds, batch_stds), torch.tensor(0.01))
+        mask = (torch.abs(diff) > alpha * sigma.view(1, 1, N).repeat(T, B, 1)) & (torch.sign(diff) != expected - target)
 
     # update 𝜎running
-    running_error.update(td_error.squeeze().cpu().detach().numpy().flatten())
+    for i, x in enumerate(running_errors):
+        x.update(td_error[:, :, i].squeeze().cpu().detach().numpy().flatten())
 
     # loss and priority normalization (B1)
-    # td_error = td_error / sigma
+    # (T, B, N) / (N,)
+    td_error = td_error / sigma
 
     loss = 0.5 * (td_error ** 2)
     # loss = torch.where(mask, 0., loss)
@@ -180,8 +186,8 @@ def compute_policy_loss(q_t, pi_t, piT_t, c_kl=0.5):
 
     p_loss = -(q_onehot * torch.log(pi_t)).sum(-1)
 
-    mask = (F.kl_div(piT_t, pi_t, reduction="none").sum(-1) > c_kl)
-    p_loss = torch.where(mask, 0., p_loss)
+    # mask = (F.kl_div(piT_t, pi_t, reduction="none").sum(-1) > c_kl)
+    # p_loss = torch.where(mask, 0., p_loss)
     p_loss = p_loss.mean()
 
     return p_loss

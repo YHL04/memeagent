@@ -10,10 +10,7 @@ from utils import RunningMeanStd
 
 class LifelongNovelty:
 
-    def __init__(self,
-                 lr=5e-4,
-                 L=5,
-                 device="cuda"):
+    def __init__(self, lr=5e-4, L=5, device="cuda"):
 
         self.predictor = ConvNet(512).to(device)
         self.target = ConvNet(512).to(device)
