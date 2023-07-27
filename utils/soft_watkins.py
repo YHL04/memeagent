@@ -168,7 +168,7 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
     td_error = td_error / sigma
 
     loss = 0.5 * (td_error ** 2)
-    # loss = torch.where(mask, 0., loss)
+    loss = torch.where(mask, 0., loss)
 
     # Cross mixture loss (B2)
     loss = n * get_index(loss, arms.unsqueeze(0).repeat(T, 1)) + ((1-n) / N) * loss.sum(-1)
@@ -186,8 +186,8 @@ def compute_policy_loss(q_t, pi_t, piT_t, c_kl=0.5):
 
     p_loss = -(q_onehot * torch.log(pi_t)).sum(-1)
 
-    # mask = (F.kl_div(piT_t, pi_t, reduction="none").sum(-1) > c_kl)
-    # p_loss = torch.where(mask, 0., p_loss)
+    mask = (F.kl_div(piT_t, pi_t, reduction="none").sum(-1) > c_kl)
+    p_loss = torch.where(mask, 0., p_loss)
     p_loss = p_loss.mean()
 
     return p_loss

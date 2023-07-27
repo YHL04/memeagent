@@ -17,4 +17,3 @@ An unofficial implementation of MEME (Efficient Memory-based Exploration agent) 
 
 [![Readme Card](https://github-readme-stats.vercel.app/api/pin/?username=YHL04&repo=agent57)](https://github.com/YHL04/agent57)
 
-## Helpful Repos
