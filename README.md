@@ -3,6 +3,8 @@ An unofficial implementation of MEME (Efficient Memory-based Exploration agent) 
 
 ## Learning Curves
 
+<img src="https://github.com/YHL04/memeagent/blob/main/learning_curves/breakout_test_run.png" alt="drawing" width="600"/>
+
 ## Features
 
 - [X] Bootstrapping with online network.
