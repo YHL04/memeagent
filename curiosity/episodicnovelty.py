@@ -75,10 +75,6 @@ class EpisodicNovelty:
         ids = ids.cpu().numpy()
         emb = self.eval_model(obs).cpu().numpy()
 
-        # if self.counts[id] < self.N:
-        #     self.add(id, emb)
-        #     return 0.
-
         dist = self.knn_query(ids, emb)
         for id in ids:
             if self.counts[id] >= self.N:
@@ -86,20 +82,13 @@ class EpisodicNovelty:
         self.add(ids, emb)
 
         # Calculate kernel output
-        # print('dist ', dist.mean())
-        # print('mean ', self.normalizer.mean)
         distance_rate = dist / (self.normalizer.mean + 1e-8)
-        # print('should average 1 ', distance_rate)
 
         distance_rate = np.maximum((distance_rate - self.cluster_distance), np.array(0.))
         kernel_output = self.kernel_epsilon / (distance_rate + self.kernel_epsilon)
 
         # Calculate denominator
-        # different from original paper: mean instead of sum so scale is independent of self.N
         similarity = np.sqrt(np.sum(kernel_output)) + self.c_constant
-        # print('sim ', similarity)
-        # if similarity < 1:
-        #     print('dst', distance_rate)
 
         similarity = torch.tensor(similarity)
         mask = (self.counts < self.N) | torch.isnan(similarity) | (similarity > self.max_similarity)
