@@ -57,7 +57,7 @@ class Learner:
     discount_min = 0.99
     tau = 0.25
 
-    update_every = 400
+    update_every = 1  # 400
     save_every = 400
     device = "cuda"
 
@@ -376,7 +376,7 @@ class Learner:
         An update step. Performs a training step, update new recurrent states,
         hard update target model occasionally and transfer weights to eval model
         """
-        loss, new_states = self.train_step(
+        loss, new_states, error = self.train_step(
             obs=block.obs.cuda(),
             actions=block.actions.cuda(),
             probs=block.probs.cuda(),
@@ -384,7 +384,8 @@ class Learner:
             intr=block.intr.cuda(),
             states=(block.states[0].cuda(), block.states[1].cuda()),
             dones=block.dones.cuda(),
-            arms=block.arms.cuda()
+            arms=block.arms.cuda(),
+            is_weights=block.is_weights.cuda()
         )
         intr_loss = self.train_novelty_step(
             obs=block.obs.cuda(),
@@ -397,8 +398,10 @@ class Learner:
         states2 = torch.stack(states2).transpose(0, 1).cpu().numpy()
         new_states = np.stack([states1, states2], 2)
 
+        error = error.sum(0).cpu().numpy()
+
         # update new states to buffer
-        self.priority_queue.put((block.idxs, new_states, loss, intr_loss, self.epsilon))
+        self.priority_queue.put((block.idxs, new_states, error, loss, intr_loss, self.epsilon))
 
         # hard update target model
         if self.updates % self.update_every == 0:
@@ -418,7 +421,7 @@ class Learner:
 
         return loss, intr_loss
 
-    def train_step(self, obs, actions, probs, extr, intr, states, dones, arms):
+    def train_step(self, obs, actions, probs, extr, intr, states, dones, arms, is_weights):
         """
         Accumulate gradients to increase batch size
         Gradients are cached for n_accumulate steps before optimizer.step()
@@ -446,7 +449,7 @@ class Learner:
             for t in range(self.burnin):
                 new_states.append((state[0].detach(), state[1].detach()))
 
-                _, state = self.target_model(obs[t], state)
+                _, _, state = self.target_model(obs[t], state)
 
             target_q, target_pi = [], []
             for t in range(self.burnin, self.T+1):
@@ -483,17 +486,18 @@ class Learner:
         discount_t = (~dones).float().unsqueeze(-1) * self.discounts.view(1, 1, self.N).to(dones.device)
         actions = actions.unsqueeze(-1).repeat(1, 1, self.N)
 
-        q_loss = compute_retrace_loss(
+        q_loss, error = compute_retrace_loss(
             q_t=q,
             qT_t=target_q[:-1],
-            a_t=actions[:-1],
-            a_t1=actions[1:],
-            r_t=rewards,
+            a_t=actions[self.burnin:-1],
+            a_t1=actions[self.burnin+1:],
+            r_t=rewards[self.burnin:],
             pi_t1=target_pi[1:],
-            mu_t1=probs[1:],
-            discount_t=discount_t,
+            mu_t1=probs[self.burnin+1:],
+            discount_t=discount_t[self.burnin:],
             arms=arms,
             running_errors=self.running_errors,
+            is_weights=is_weights,
         )
 
         p_loss = compute_policy_loss(
@@ -510,7 +514,7 @@ class Learner:
         self.opt.step()
 
         loss = loss.item()
-        return loss, new_states
+        return loss, new_states, error
 
     def train_novelty_step(self, obs, actions):
         emb_loss = self.train_emb_step(obs, actions)

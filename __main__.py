@@ -89,11 +89,19 @@ def main(env_name,
 
 
 if __name__ == "__main__":
+    """
+    Envs:
+        BreakoutDeterministic-v4
+        Pitfall-v4
+        Solaris-v5
+        
+    """
+
     main(env_name="BreakoutDeterministic-v4",
          num_actors=2,
-         batch_size=64,
-         buffer_size=400_000,
-         burnin=0,
-         rollout=10
+         batch_size=32,
+         buffer_size=1_000,
+         burnin=2,
+         rollout=8
          )
 

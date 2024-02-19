@@ -5,7 +5,13 @@ An unofficial implementation of MEME (Efficient Memory-based Exploration agent) 
 
 <img src="https://github.com/YHL04/memeagent/blob/main/learning_curves/breakout_test_run.png" alt="drawing" width="600"/>
 
-## Features
+## TODO
+
+- [ ] Fix prioritized experience replay
+- [ ] Fix burnin functionality
+- [ ] Fix code for big burnin and rollout hyperparameter
+
+## Improvements
 
 - [X] Bootstrapping with online network.
 - [ ] Target computation with tolerance. (almost done)

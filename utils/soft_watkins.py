@@ -84,7 +84,8 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     return rescale(torch.stack(returns, dim=0).detach())
 
 
-def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, arms, running_errors,
+def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
+                         discount_t, arms, running_errors, is_weights,
                          alpha=3., lambda_=0.95, kappa=0.01, n=0.5, eps=1e-8):
     """
     Implementation of MEME agent Bootstrapping with online network (A1),
@@ -125,6 +126,7 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
     assert mu_t1.shape == (T, B, N)
     assert discount_t.shape == (T, B, N)
     assert arms.shape == (B,)
+    assert is_weights.shape == (B,)
 
     with torch.no_grad():
         # compute cutting trace coefficients in retrace
@@ -172,9 +174,10 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1, discount_t, ar
 
     # Cross mixture loss (B2)
     loss = n * get_index(loss, arms.unsqueeze(0).repeat(T, 1)) + ((1-n) / N) * loss.sum(-1)
+    loss *= is_weights
     loss = loss.mean()
 
-    return loss
+    return loss, td_error.sum(-1).detach()
 
 
 def compute_policy_loss(q_t, pi_t, piT_t, c_kl=0.5):
