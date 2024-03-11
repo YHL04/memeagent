@@ -50,8 +50,14 @@ class SumTree:
         return self.tree[0]
 
     def get_priority(self, e):
+        # still unsure why sometimes e is nan
+        if np.isnan(e):
+            e = 0
+
         # proportional prioritization
-        return np.abs(e) + self.e
+        p = np.abs(e) + self.e
+
+        return p
 
     def add(self, idx, p, got_p):
         self.update(idx, p, got_p=got_p)

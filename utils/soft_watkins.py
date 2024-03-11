@@ -33,7 +33,7 @@ def get_index(x, idx):
     return indexed
 
 
-def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
+def compute_soft_watkins_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     """
     Compute target for Transformed Retrace Operators
 
@@ -62,10 +62,6 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
         discount_t (T, B): discount at time t
         c_t (T, B): importance weights at time t+1
         pi_t (T, B, action_dim): policy probabilities from online network at time t+1
-
-
-    TODO:
-        understand the math derivations
     """
     q_t = inv_rescale(q_t)
 
@@ -84,18 +80,15 @@ def compute_retrace_target(q_t, a_t, r_t, discount_t, c_t, pi_t):
     return rescale(torch.stack(returns, dim=0).detach())
 
 
-def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
-                         discount_t, arms, running_errors, is_weights,
-                         alpha=3., lambda_=0.95, kappa=0.01, n=0.5, eps=1e-8):
+def compute_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
+                 discount_t, arms, running_errors, is_weights,
+                 alpha=3., lambda_=0.95, kappa=0.01, n=0.5, eps=1e-8):
     """
     Implementation of MEME agent Bootstrapping with online network (A1),
     Loss and priority normalization (B1), and cross mixture training (B2)
 
     Apply inverse of value rescaling before passing into compute_retrace_target()
     Then, apply value rescaling after getting target from compute_retrace_target()
-
-    TODO:
-        Integrate combined loss with normalization and mask
 
     Args:
         q_t (T+1, B, action_dim): expected q values at time t
@@ -133,20 +126,23 @@ def compute_retrace_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
         # from what I understand: c_t1 is a way to correct for off policy samples
 
         # retrace:
-        pi_a_t1 = get_index(pi_t1, a_t)
-        c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
+        # pi_a_t1 = get_index(pi_t1, a_t)
+        # c_t1 = torch.minimum(torch.tensor(1.0), pi_a_t1 / (mu_t1 + eps)) * lambda_
 
         # soft watkins Q(lambda): except that not all values are expected value
-        # q_a_t1 = get_index(q_t[1:], a_t1)
-        # indicator = (q_a_t1.unsqueeze(-1) >= q_t[1:] - kappa * torch.abs(q_t[1:])).float()
-        # c_t1 = lambda_ * (pi_t1 * indicator).sum(-1)
+        q_a_t1 = get_index(q_t[1:], a_t1)
+        indicator = (q_a_t1.unsqueeze(-1) >= q_t[1:] - kappa * torch.abs(q_t[1:])).float()
+        c_t1 = lambda_ * (pi_t1 * indicator).sum(-1)
 
-        # get transformed retrace targets
-        target = compute_retrace_target(q_t[1:], a_t1, r_t, discount_t, c_t1, pi_t1)
+        # get transformed targets
+        target = compute_soft_watkins_target(q_t[1:], a_t1, r_t, discount_t, c_t1, pi_t1)
 
     # get expected q value of taking action a_t
     expected = get_index(q_t[:-1], a_t)
     expectedT = get_index(qT_t, a_t)
+
+    assert torch.isnan(expected).any() == False, expected
+    assert torch.isnan(target).any() == False, target
 
     td_error = target - expected
 

@@ -8,6 +8,8 @@ import numpy as np
 from dataclasses import dataclass
 from typing import List
 
+from utils import tosqueeze
+
 from .logger import Logger
 from .per import SumTree
 
@@ -85,7 +87,7 @@ class ReplayBuffer:
 
         # Buffer
         self.buffer = np.empty((size,), dtype=object)
-        self.ptr, self.count, self.n_entries = 0, 0, 0
+        self.ptr, self.count, self.n_entries, self.updates = 0, 0, 0, 0
 
         # Global Sum Tree
         self.sumtree = SumTree(size, max_error=0, fill_zero=True)
@@ -129,6 +131,8 @@ class ReplayBuffer:
             time.sleep(0.001)
 
             if not self.batch_queue.full() and self.count != 0:
+                self.updates += 1
+
                 data = self.sample_batch()
                 self.batch_queue.put(data)
 
@@ -177,6 +181,7 @@ class ReplayBuffer:
             # logs
             self.logger.total_frames += episode.length
             self.logger.arm = episode.arm
+            self.logger.replay_ratio = (self.updates * self.B * self.T) / self.n_entries
 
             # obtain extrinsic reward from purely exploitative policy
             if episode.arm == 0:
@@ -207,7 +212,6 @@ class ReplayBuffer:
             states = []
             dones = []
             arms = []
-            discounts = []
             priorities = []
             idxs = []
 
@@ -260,8 +264,9 @@ class ReplayBuffer:
             dones = dones.transpose(0, 1)
 
             # prioritized experience replay
+            assert torch.isnan(torch.tensor(priorities)).any() == False, priorities
+
             priorities = torch.tensor(priorities) ** self.p_a
-            assert torch.isnan(priorities).any() == False, priorities
             sampling_probabilities = priorities / priorities.sum()
             is_weights = torch.pow(self.n_entries * sampling_probabilities, -self.p_beta)
             is_weights /= is_weights.max()
@@ -314,7 +319,7 @@ class ReplayBuffer:
                 self.buffer[b_idx].sumtree.update(t_idx, error, got_p=False)
                 self.sumtree.update(b_idx, self.buffer[b_idx].sumtree.total(), got_p=True)
 
-                if error > self.max_error:
+                if error > self.max_error and np.abs(error) != np.nan:
                     self.max_error = error
 
             # update new state for each sample in batch
@@ -353,13 +358,20 @@ class LocalBuffer:
     finish() is called to return Episode to Learner to store in ReplayBuffer
     """
 
-    def __init__(self):
+    def __init__(self, T):
+        self.T = T
+        self._reset()
+
+    def _reset(self):
         self.obs_buffer = []
         self.action_buffer = []
         self.prob_buffer = []
         self.extr_buffer = []
         self.intr_buffer = []
         self.state_buffer = []
+
+        for i in range(self.T-1):
+            self.add_zeros()
 
     def add(self, obs, action, prob, extr, intr, state):
         """
@@ -378,6 +390,17 @@ class LocalBuffer:
         self.extr_buffer.append(extr)
         self.intr_buffer.append(intr)
         self.state_buffer.append(state)
+
+    def add_zeros(self):
+        """
+        This function is called to pad for big burnin and rollouts
+        """
+        self.obs_buffer.append(np.zeros((4, 105, 80)))
+        self.action_buffer.append(0)
+        self.prob_buffer.append(0)
+        self.extr_buffer.append(0)
+        self.intr_buffer.append(0)
+        self.state_buffer.append(tuple(map(tosqueeze, (np.zeros((1, 512)), np.zeros((1, 512))))))
 
     def finish(self, arm, total_time, signature):
         """

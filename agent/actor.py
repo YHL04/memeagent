@@ -23,13 +23,13 @@ class Actor:
         discount (float): initial discount value of actor
     """
 
-    def __init__(self, learner_rref, id, env_name):
+    def __init__(self, learner_rref, id, env_name, T):
         self.learner_rref = learner_rref
         self.id = id
         self.arm = id
 
         self.env = Env(env_name)
-        self.local_buffer = LocalBuffer()
+        self.local_buffer = LocalBuffer(T)
 
         self.count = 0
 

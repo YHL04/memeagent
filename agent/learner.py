@@ -24,7 +24,7 @@ from .replaybuffer import ReplayBuffer
 from models import Model
 from curiosity import EpisodicNovelty, LifelongNovelty
 from utils import UCB, RunningMeanStd, \
-    compute_retrace_loss, \
+    compute_loss, \
     compute_policy_loss, \
     get_betas, get_discounts, \
     totensor, toconcat
@@ -149,6 +149,7 @@ class Learner:
         self.actor_rref = self.spawn_actors(learner_rref=RRef(self),
                                             env_name=env_name,
                                             N=N,
+                                            T=self.T
                                             )
 
         self.running_errors = [RunningMeanStd() for _ in range(N)]
@@ -156,7 +157,7 @@ class Learner:
         self.updates = 0
 
     @staticmethod
-    def spawn_actors(learner_rref, env_name, N):
+    def spawn_actors(learner_rref, env_name, N, T):
         """
         Start actor by calling actor.remote().run()
         Actors communicate with learner through rpc and RRef
@@ -174,7 +175,7 @@ class Learner:
         for i in range(N):
             actor_rref = rpc.remote(f"actor{i}",
                                     Actor,
-                                    args=(learner_rref, i, env_name),
+                                    args=(learner_rref, i, env_name, T),
                                     timeout=0
                                     )
             actor_rref.remote().run()
@@ -486,7 +487,7 @@ class Learner:
         discount_t = (~dones).float().unsqueeze(-1) * self.discounts.view(1, 1, self.N).to(dones.device)
         actions = actions.unsqueeze(-1).repeat(1, 1, self.N)
 
-        q_loss, error = compute_retrace_loss(
+        q_loss, error = compute_loss(
             q_t=q,
             qT_t=target_q[:-1],
             a_t=actions[self.burnin:-1],

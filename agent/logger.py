@@ -22,6 +22,7 @@ class Logger:
         self.intrinsic = 0
         self.epsilon = 0
         self.arm = 0
+        self.replay_ratio = 0
 
         self.start = time.time()
 
@@ -51,6 +52,7 @@ class Logger:
               'Intrinsic: {:>10.4f} '
               'Epsilon: {:>8.3f} '
               'Arm: {:>8} '
+              'ReplayRatio: {:>8.2f} '
               .format(elapsed_time,
                       self.total_updates,
                       self.total_frames,
@@ -59,7 +61,8 @@ class Logger:
                       self.reward,
                       self.intrinsic,
                       self.epsilon,
-                      self.arm
+                      self.arm,
+                      self.replay_ratio
                       ),
               flush=True)
 
