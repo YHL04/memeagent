@@ -1,7 +1,7 @@
 # MEME (Efficient Memory-based Exploration agent)
 An unofficial implementation of <a href="https://arxiv.org/pdf/2209.07550.pdf">MEME</a> (Efficient Memory-based Exploration agent) from DeepMind
 
-## Learning Curves
+## Learning Curves (Breakout)
 
 <img src="https://github.com/YHL04/memeagent/blob/main/learning_curves/breakout_test_run.png" alt="drawing" width="600"/>
 
