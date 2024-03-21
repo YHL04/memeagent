@@ -32,9 +32,11 @@ class RunningMeanStd:
         self.var = M2 / self.count
 
     def mean(self):
+        assert not np.isnan(self.mean).any()
         return self.mean.item()
 
     def std(self):
+        assert not np.isnan(self.var).any()
         return np.sqrt(self.var).item()
 
     def normalize(self, x):

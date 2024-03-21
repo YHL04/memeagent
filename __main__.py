@@ -100,8 +100,8 @@ if __name__ == "__main__":
     main(env_name="BreakoutDeterministic-v4",
          num_actors=2,
          batch_size=32,
-         buffer_size=1_000,
-         burnin=2,
-         rollout=8
+         buffer_size=5e4,
+         burnin=3,
+         rollout=10
          )
 

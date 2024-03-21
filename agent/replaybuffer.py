@@ -67,15 +67,17 @@ class ReplayBuffer:
         priority_queue (mp.Queue): FIFO queue to update new recurrent states from training to ReplayBuffer
 
     """
+    e = 0.01
     p_a = 0.6
     p_beta = 0.4
     p_beta_increment_per_sampling = 0.001
 
-    def __init__(self, size, B, T, N,
+    def __init__(self, max_frames, B, T, N,
                  sample_queue, batch_queue, priority_queue
                  ):
 
-        self.size = size
+        self.max_frames = int(max_frames)
+        self.size = int(max_frames)
         self.B = B
         self.T = T
         self.N = N
@@ -86,18 +88,22 @@ class ReplayBuffer:
         self.priority_queue = priority_queue
 
         # Buffer
-        self.buffer = np.empty((size,), dtype=object)
+        self.buffer = np.empty((self.size,), dtype=object)
         self.ptr, self.count, self.n_entries, self.updates = 0, 0, 0, 0
 
         # Global Sum Tree
-        self.sumtree = SumTree(size, max_error=0, fill_zero=True)
+        self.sumtree = SumTree(self.size)
 
         # Logger
         self.logger = Logger()
 
         self.frames = 0
+        self.total_frames = 0
         self.max_error = 1
         self.total_p = 0
+
+    def get_priority(self, e):
+        return np.abs(e) + self.e
 
     def __len__(self):
         return len(self.buffer)
@@ -158,17 +164,41 @@ class ReplayBuffer:
         with self.lock:
 
             # add to buffer
+
+            # total frames received
             self.frames += episode.length
+
+            # total frames in buffer
+            self.total_frames += episode.length
+
+            # remove episodes until total_frames can fit into max_frames
+            while self.total_frames > self.max_frames:
+                if self.buffer[-1] is not None:
+                    self.total_frames -= self.buffer[-1].length
+                    self.n_entries -= (self.buffer[-1].length - self.T)
+                    self.count -= 1
+
+                self.size -= 1
+                self.sumtree.update(self.size, 0)
+                self.buffer.resize(self.size, refcheck=False)
+                assert len(self.buffer) == self.size
+
+            if self.ptr >= self.size:
+                self.ptr = 0
+
+            # assert sum(self.sumtree.tree[len(self.buffer)+self.sumtree.size-1:]) == 0
+
             # create sum tree for priority queue
-            episode.sumtree = SumTree(episode.length-self.T, self.max_error, fill_zero=False)
+            episode.sumtree = SumTree(episode.length-self.T, fill_value=self.get_priority(self.max_error))
             # subtract entries that will be removed along with episode
             if self.buffer[self.ptr] is not None:
                 self.n_entries -= episode.length-self.T
+                self.total_frames -= episode.length
             # append episode to buffer
             self.buffer[self.ptr] = episode
             # update global sumtree
             assert episode.sumtree.total() != 0
-            self.sumtree.add(self.ptr, episode.sumtree.total(), got_p=True)
+            self.sumtree.update(self.ptr, episode.sumtree.total())
 
             # increment pointers and counts
             self.n_entries += episode.length-self.T
@@ -181,7 +211,7 @@ class ReplayBuffer:
             # logs
             self.logger.total_frames += episode.length
             self.logger.arm = episode.arm
-            self.logger.replay_ratio = (self.updates * self.B * self.T) / self.n_entries
+            self.logger.replay_ratio = (self.updates * self.B * self.T) / self.frames
 
             # obtain extrinsic reward from purely exploitative policy
             if episode.arm == 0:
@@ -229,8 +259,11 @@ class ReplayBuffer:
                 s = random.uniform(a, b)
 
                 b_idx, p, s = self.sumtree.get(s)
+                assert b_idx < self.size
                 t_idx, p, _ = self.buffer[b_idx].sumtree.get(s)
+                assert t_idx < self.buffer[b_idx].length - self.T
 
+                assert p >= 0
                 priorities.append(p)
                 idxs.append([b_idx, t_idx, self.buffer[b_idx].signature])
 
@@ -267,8 +300,14 @@ class ReplayBuffer:
             assert torch.isnan(torch.tensor(priorities)).any() == False, priorities
 
             priorities = torch.tensor(priorities) ** self.p_a
+            assert torch.isnan(priorities).any() == False, priorities
             sampling_probabilities = priorities / priorities.sum()
+            assert priorities.sum() != 0
+            assert torch.isnan(sampling_probabilities).any() == False, sampling_probabilities
             is_weights = torch.pow(self.n_entries * sampling_probabilities, -self.p_beta)
+            assert is_weights.max() != 0
+            assert torch.isnan(is_weights).any() == False, is_weights
+
             is_weights /= is_weights.max()
             assert torch.isnan(is_weights).any() == False
 
@@ -313,11 +352,16 @@ class ReplayBuffer:
                 # b_idx is the index of episode and t_idx is the starting index of burnin
                 b_idx, t_idx, signature = idx
 
+                if b_idx >= self.size:
+                    continue
+
                 if signature != self.buffer[b_idx].signature:
                     continue
 
-                self.buffer[b_idx].sumtree.update(t_idx, error, got_p=False)
-                self.sumtree.update(b_idx, self.buffer[b_idx].sumtree.total(), got_p=True)
+                assert np.abs(error) != np.nan, loss
+
+                self.buffer[b_idx].sumtree.update(t_idx, self.get_priority(error))
+                self.sumtree.update(b_idx, self.buffer[b_idx].sumtree.total())
 
                 if error > self.max_error and np.abs(error) != np.nan:
                     self.max_error = error

@@ -121,6 +121,17 @@ def compute_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
     assert arms.shape == (B,)
     assert is_weights.shape == (B,)
 
+    assert not torch.isnan(q_t).any()
+    assert not torch.isnan(qT_t).any()
+    assert not torch.isnan(a_t).any()
+    assert not torch.isnan(a_t1).any()
+    assert not torch.isnan(r_t).any()
+    assert not torch.isnan(pi_t1).any()
+    assert not torch.isnan(mu_t1).any()
+    assert not torch.isnan(discount_t).any()
+    assert not torch.isnan(arms).any()
+    assert not torch.isnan(is_weights).any()
+
     with torch.no_grad():
         # compute cutting trace coefficients in retrace
         # from what I understand: c_t1 is a way to correct for off policy samples
@@ -131,20 +142,24 @@ def compute_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
 
         # soft watkins Q(lambda): except that not all values are expected value
         q_a_t1 = get_index(q_t[1:], a_t1)
+        assert not torch.isnan(q_a_t1).any()
         indicator = (q_a_t1.unsqueeze(-1) >= q_t[1:] - kappa * torch.abs(q_t[1:])).float()
+        assert not torch.isnan(indicator).any()
         c_t1 = lambda_ * (pi_t1 * indicator).sum(-1)
+        assert not torch.isnan(c_t1).any()
 
         # get transformed targets
         target = compute_soft_watkins_target(q_t[1:], a_t1, r_t, discount_t, c_t1, pi_t1)
+        assert not torch.isnan(target).any()
 
     # get expected q value of taking action a_t
     expected = get_index(q_t[:-1], a_t)
     expectedT = get_index(qT_t, a_t)
 
-    assert torch.isnan(expected).any() == False, expected
-    assert torch.isnan(target).any() == False, target
-
     td_error = target - expected
+    assert not torch.isnan(expected).any()
+    assert not torch.isnan(target).any()
+    assert not torch.isnan(td_error).any()
 
     # trust region mask (A1)
     with torch.no_grad():
@@ -152,9 +167,11 @@ def compute_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
         # according to 𝜎 = max(𝜎running, 𝜎batch, 𝜖), assuming batch is std of current td_errors
         # sigma = max(running_error.std(), td_error.std().item(), 0.01)
         running_stds = torch.tensor([x.std() for x in running_errors], device=diff.device)
+        assert not torch.isnan(running_stds).any()
         batch_stds = td_error.view(-1, N).std(dim=0)
-
+        assert not torch.isnan(batch_stds).any()
         sigma = torch.maximum(torch.maximum(running_stds, batch_stds), torch.tensor(0.01))
+        assert not torch.isnan(sigma).any()
         mask = (torch.abs(diff) > alpha * sigma.view(1, 1, N).repeat(T, B, 1)) & (torch.sign(diff) != expected - target)
 
     # update 𝜎running
@@ -163,15 +180,22 @@ def compute_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, mu_t1,
 
     # loss and priority normalization (B1)
     # (T, B, N) / (N,)
+    assert not torch.isnan(td_error).any()
     td_error = td_error / sigma
+    assert not torch.isnan(td_error).any()
 
     loss = 0.5 * (td_error ** 2)
+    assert not torch.isnan(loss).any()
     loss = torch.where(mask, 0., loss)
+    assert not torch.isnan(loss).any()
 
     # Cross mixture loss (B2)
+    assert not torch.isnan(loss).any()
     loss = n * get_index(loss, arms.unsqueeze(0).repeat(T, 1)) + ((1-n) / N) * loss.sum(-1)
+    assert not torch.isnan(loss).any()
     loss *= is_weights
     loss = loss.mean()
+    assert not torch.isnan(loss).any()
 
     return loss, td_error.sum(-1).detach()
 

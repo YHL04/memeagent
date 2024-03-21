@@ -57,7 +57,7 @@ class Learner:
     discount_min = 0.99
     tau = 0.25
 
-    update_every = 1  # 400
+    update_every = 400
     save_every = 400
     device = "cuda"
 
@@ -120,7 +120,7 @@ class Learner:
         self.batch_data = []
 
         # start replay buffer
-        self.replay_buffer = ReplayBuffer(size=size,
+        self.replay_buffer = ReplayBuffer(max_frames=size,
                                           B=B,
                                           T=burnin+rollout,
                                           N=N,

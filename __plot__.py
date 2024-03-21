@@ -10,7 +10,7 @@ import seaborn as sns
 
 dir = os.listdir("logs")
 dir.sort()
-latestfile = "logs/" + dir[-1]
+latestfile = "logs/" + dir[-2]
 
 data = pd.read_csv(latestfile,
                    names=["Time",
@@ -24,9 +24,9 @@ data = pd.read_csv(latestfile,
                           "Beta"]
                    )
 
-# data["Temp"] = np.arange(len(data["Reward"])) // 50
-# sns.lineplot(data=data, x="Temp", y="Reward")
-# plt.show()
+data["Minutes"] = np.arange(len(data["Reward"])) // 50
+sns.lineplot(data=data, x="Minutes", y="Reward")
+plt.show()
 
 plt.subplot(7, 1, 1)
 plt.title("Time (Sec)")
