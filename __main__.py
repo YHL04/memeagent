@@ -8,16 +8,12 @@ import os
 import time
 
 from agent import Learner
+from argparser import parse_args
 
 
 def run_worker(
     rank,
-    env_name,
-    num_actors,
-    batch_size,
-    buffer_size,
-    burnin,
-    rollout
+    args
 ):
     """
     Workers:
@@ -36,17 +32,12 @@ def run_worker(
 
     if rank == 0:
         # create Learner in a remote location
-        rpc.init_rpc("learner", rank=rank, world_size=1+num_actors)
+        rpc.init_rpc("learner", rank=rank, world_size=1+args.N)
 
         learner_rref = rpc.remote(
             "learner",
             Learner,
-            args=(env_name,
-                  num_actors,
-                  batch_size,
-                  buffer_size,
-                  burnin,
-                  rollout
+            args=(args,
                   ),
             timeout=0
         )
@@ -58,17 +49,12 @@ def run_worker(
 
     else:
         # Create actor in a remote location
-        rpc.init_rpc(f"actor{rank-1}", rank=rank, world_size=1+num_actors)
+        rpc.init_rpc(f"actor{rank-1}", rank=rank, world_size=1+args.N)
 
     rpc.shutdown()
 
 
-def main(env_name,
-         num_actors,
-         batch_size,
-         buffer_size,
-         burnin,
-         rollout,
+def main(args
          ):
     # set localhost and port
     os.environ["MASTER_ADDR"] = "localhost"
@@ -76,14 +62,9 @@ def main(env_name,
 
     mp.spawn(
         run_worker,
-        args=(env_name,
-              num_actors,
-              batch_size,
-              buffer_size,
-              burnin,
-              rollout
+        args=(args,
               ),
-        nprocs=1+num_actors,
+        nprocs=1+args.N,
         join=True
     )
 
@@ -96,12 +77,7 @@ if __name__ == "__main__":
         Solaris-v5
         
     """
-
-    main(env_name="BreakoutDeterministic-v4",
-         num_actors=2,
-         batch_size=32,
-         buffer_size=5e4,
-         burnin=3,
-         rollout=10
+    args = parse_args()
+    main(args
          )
 

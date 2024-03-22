@@ -17,6 +17,7 @@ import threading
 import time
 import random
 from copy import deepcopy
+import os
 
 from .actor import Actor
 from .replaybuffer import ReplayBuffer
@@ -43,43 +44,44 @@ class Learner:
         rollout (int): Length of rollout, concept from R2D2 paper
 
     """
-    epsilon = 1
-    epsilon_min = 0.1
-    epsilon_decay = 0.0001
 
-    lr = 1e-4
-    weight_decay = 0.05
-    adam_betas = (0.9, 0.999)
-    adam_eps = 1e-8
-
-    beta = 0.3
-    discount_max = 0.997
-    discount_min = 0.99
-    tau = 0.25
-
-    update_every = 400
-    save_every = 400
-    device = "cuda"
-
-    bandit_window_size = 90
-    bandit_beta = 1.0
-    bandit_epsilon = 0.5
-
-    def __init__(self, env_name, N, B, size, burnin, rollout):
+    #def __init__(self, env_name, N, B, size, burnin, rollout):
+    def __init__(self, args):        
         torch.manual_seed(0)
         np.random.seed(0)
         random.seed(0)
 
-        self.N, self.B = N, B
-        self.size = size
+        self.epsilon = args.epsilon
+        self.epsilon_min = args.epsilon_min
+        self.epsilon_decay = args.epsilon_decay
+
+        self.lr = args.lr
+        self.weight_decay = args.weight_decay
+        self.adam_betas = args.adam_betas
+        self.adam_eps = args.adam_eps
+
+        self.beta = args.beta
+        self.discount_max = args.discount_max
+        self.discount_min = args.discount_min
+        self.tau = args.tau
+
+        self.update_every = args.update_every
+        self.save_every = args.save_every
+        self.device = args.device
+
+        self.bandit_window_size = args.bandit_window_size
+        self.bandit_beta = args.bandit_beta
+        self.bandit_epsilon = args.bandit_epsilon
+        self.N, self.B = args.N, args.batch_size
+        self.size = args.buffer_size
 
         # models
-        self.action_size = gym.make(env_name).action_space.n
+        self.action_size = gym.make(args.env_name).action_space.n
         model = Model(self.N, self.action_size)
 
         # episodic novelty module / lifelong novelty module
-        self.episodic_novelty = EpisodicNovelty(N, self.action_size)
-        self.lifelong_novelty = LifelongNovelty(N)
+        self.episodic_novelty = EpisodicNovelty(args.N, self.action_size)
+        self.lifelong_novelty = LifelongNovelty(args.N)
 
         self.model = nn.DataParallel(deepcopy(model)).cuda()
         self.target_model = nn.DataParallel(deepcopy(model)).cuda()
@@ -95,9 +97,9 @@ class Learner:
         self.lock_model = mp.Lock()
 
         # hyper-parameters
-        self.burnin = burnin
-        self.rollout = rollout
-        self.T = burnin + rollout
+        self.burnin = args.burnin
+        self.rollout = args.rollout
+        self.T = args.burnin + args.rollout
 
         # optimizer and loss functions
         # self.opt = optim.Adam(self.model.parameters(),
@@ -120,25 +122,25 @@ class Learner:
         self.batch_data = []
 
         # start replay buffer
-        self.replay_buffer = ReplayBuffer(max_frames=size,
-                                          B=B,
-                                          T=burnin+rollout,
-                                          N=N,
+        self.replay_buffer = ReplayBuffer(max_frames=self.size,
+                                          B=self.B,
+                                          T=self.burnin+self.rollout,
+                                          N=self.N,
                                           sample_queue=self.sample_queue,
                                           batch_queue=self.batch_queue,
                                           priority_queue=self.priority_queue
                                           )
 
         # start actors
-        self.request_futures = [Future() for _ in range(N)]
-        self.return_futures = [Future() for _ in range(N)]
+        self.request_futures = [Future() for _ in range(self.N)]
+        self.return_futures = [Future() for _ in range(self.N)]
 
-        self.request_rpcs = [None for _ in range(N)]
-        self.return_rpcs = [None for _ in range(N)]
+        self.request_rpcs = [None for _ in range(self.N)]
+        self.return_rpcs = [None for _ in range(self.N)]
         self.request_rpcs_count = 0
 
-        self.betas = get_betas(N, self.beta)
-        self.discounts = get_discounts(N, self.discount_max, self.discount_min)
+        self.betas = get_betas(self.N, self.beta)
+        self.discounts = get_discounts(self.N, self.discount_max, self.discount_min)
 
         self.controller = UCB(num_arms=self.N,
                               window_size=self.bandit_window_size,
@@ -147,12 +149,12 @@ class Learner:
                               )
 
         self.actor_rref = self.spawn_actors(learner_rref=RRef(self),
-                                            env_name=env_name,
-                                            N=N,
+                                            env_name=args.env_name,
+                                            N=self.N,
                                             T=self.T
                                             )
 
-        self.running_errors = [RunningMeanStd() for _ in range(N)]
+        self.running_errors = [RunningMeanStd() for _ in range(self.N)]
 
         self.updates = 0
 
@@ -574,5 +576,6 @@ class Learner:
 
     @staticmethod
     def save(source, path="saved/final"):
+        os.makedirs(os.path.dirname(path), exist_ok=True)  # Create parent directories if they don't exist
         torch.save(source.state_dict(), path)
 
