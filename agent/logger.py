@@ -43,26 +43,26 @@ class Logger:
             self.writer.add_scalar('Arm', self.arm, self.total_updates)
             self.writer.add_scalar('Replay_Ratio', self.replay_ratio, self.total_updates)
 
-        # print('Elapsed: {:>8.4f} '
-        #       'Updates: {:>8} '
-        #       'Frames: {:>8} '
-        #       'Loss: {:>10.8f} '
-        #       'IntrLoss: {:>10.8f} '
-        #       'Reward: {:>10.4f} '
-        #       'Intrinsic: {:>10.4f} '
-        #       'Epsilon: {:>8.3f} '
-        #       'Arm: {:>8} '
-        #       'ReplayRatio: {:>8.2f} '
-        #       .format(elapsed_time,
-        #               self.total_updates,
-        #               self.total_frames,
-        #               self.loss,
-        #               self.intr_loss,
-        #               self.reward,
-        #               self.intrinsic,
-        #               self.epsilon,
-        #               self.arm,
-        #               self.replay_ratio
-        #               ),
-        #       flush=True)
+        print('Elapsed: {:>8.4f} '
+              'Updates: {:>8} '
+              'Frames: {:>8} '
+              'Loss: {:>10.8f} '
+              'IntrLoss: {:>10.8f} '
+              'Reward: {:>10.4f} '
+              'Intrinsic: {:>10.4f} '
+              'Epsilon: {:>8.3f} '
+              'Arm: {:>8} '
+              'ReplayRatio: {:>8.2f} '
+              .format(elapsed_time,
+                      self.total_updates,
+                      self.total_frames,
+                      self.loss,
+                      self.intr_loss,
+                      self.reward,
+                      self.intrinsic,
+                      self.epsilon,
+                      self.arm,
+                      self.replay_ratio
+                      ),
+              flush=True)
 

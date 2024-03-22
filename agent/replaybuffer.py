@@ -67,13 +67,14 @@ class ReplayBuffer:
         priority_queue (mp.Queue): FIFO queue to update new recurrent states from training to ReplayBuffer
 
     """
-    e = 0.01
-    p_a = 0.6
-    p_beta = 0.4
-    p_beta_increment_per_sampling = 0.001
+    # e = 0.01
+    # p_a = 0.6
+    # p_beta = 0.4
+    # p_beta_increment_per_sampling = 0.001
 
     def __init__(self, max_frames, B, T, N,
-                 sample_queue, batch_queue, priority_queue
+                 sample_queue, batch_queue, priority_queue,
+                 e, p_a, p_beta, p_beta_increment_per_sampling
                  ):
 
         self.max_frames = int(max_frames)

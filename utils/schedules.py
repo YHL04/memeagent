@@ -60,3 +60,12 @@ def get_discounts(N, discount_max, discount_min):
     """
     return torch.tensor([get_discount(i, N, discount_min, discount_max) for i in range(N)])
 
+def get_actor_exploration_epsilon(n: int):
+    """Returns exploration epsilon for actor. This follows the Ape-x, R2D2 papers.
+
+    Example for 4 actors: [0.4, 0.04715560318259695, 0.005559127278786369, 0.0006553600000000003]
+
+    """
+    assert 1 <= n
+    return np.power(0.4, np.linspace(1.0, 8.0, num=n)).flatten().tolist()
+

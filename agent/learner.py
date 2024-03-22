@@ -28,7 +28,8 @@ from utils import UCB, RunningMeanStd, \
     compute_loss, \
     compute_policy_loss, \
     get_betas, get_discounts, \
-    totensor, toconcat
+    totensor, toconcat, \
+    get_actor_exploration_epsilon 
 
 
 class Learner:
@@ -138,7 +139,11 @@ class Learner:
                                           N=self.N,
                                           sample_queue=self.sample_queue,
                                           batch_queue=self.batch_queue,
-                                          priority_queue=self.priority_queue
+                                          priority_queue=self.priority_queue,
+                                          e=args.e,
+                                          p_a=args.p_a,
+                                          p_beta=args.p_beta,
+                                          p_beta_increment_per_sampling=args.p_beta_increment_per_sampling
                                           )
 
         # start actors
@@ -151,6 +156,7 @@ class Learner:
 
         self.betas = get_betas(self.N, self.beta)
         self.discounts = get_discounts(self.N, self.discount_max, self.discount_min)
+        self.epsilons = get_actor_exploration_epsilon(self.N)
 
         self.controller = UCB(num_arms=self.N,
                               window_size=self.bandit_window_size,
@@ -246,8 +252,8 @@ class Learner:
         """
         B = id.size(0)
 
-        self.epsilon -= self.epsilon_decay
-        self.epsilon = max(self.epsilon_min, self.epsilon)
+        # self.epsilon -= self.epsilon_decay
+        # self.epsilon = max(self.epsilon_min, self.epsilon)
 
         with self.lock_model:
             _, pi, state = self.eval_model(obs, state)
@@ -257,17 +263,25 @@ class Learner:
             intr_l = self.lifelong_novelty.get_reward(obs)
             intr = intr_e * intr_l
 
-        if random.random() <= self.epsilon:
-            action = torch.randint(0, self.action_size, size=(B,))
-            prob = torch.full_like(action, self.epsilon / self.action_size)
+        actions = []
+        probs = []
+        for id in range(B):
+            self.epsilon = self.epsilons[id]
 
-            return action, prob, state, intr
+            if random.random() <= self.epsilon:
+                action = torch.randint(0, self.action_size, size=(1,)).squeeze().to(self.device)
+                prob = pi[id][action.item()]
+            else:
+                action = torch.argmax(pi[id], dim=-1)
+                prob = pi[id][action.item()]
+            actions.append(action)
+            probs.append(prob)
+
+            # return action, prob, state, intr
 
         # get action and probability of that action according to Agent57 (pg 19)
-        action = torch.argmax(pi, dim=-1)
-        prob = torch.full_like(action, 1 - (self.epsilon * ((self.action_size - 1) / self.action_size)))
 
-        return action, prob, state, intr
+        return torch.stack(actions), torch.stack(probs), state, intr
 
     def get_action(self, id, obs, state, arm):
         """
