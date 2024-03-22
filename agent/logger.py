@@ -2,7 +2,7 @@
 
 import datetime
 import time
-
+import os
 
 class Logger:
     """
@@ -11,8 +11,11 @@ class Logger:
     """
 
     def __init__(self):
-        self.datetime = f"{datetime.datetime.now().strftime('%Y_%m_%d_%H_%M')}.txt"
-        self.file = open(f"logs/{self.datetime}", "w")
+        self.datetime = datetime.datetime.now().strftime('%Y_%m_%d_%H_%M')
+        directory = 'logs'
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        self.file = open(os.path.join(directory, f"{self.datetime}.txt"), "w")
 
         self.total_frames = 0
         self.total_updates = 0
