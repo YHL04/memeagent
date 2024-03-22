@@ -6,7 +6,7 @@ def parse_args():
     # Environment parameters
     parser.add_argument('--env_name', type=str, default='BreakoutDeterministic-v4',
                         help='Name of the environment')
-    parser.add_argument('--num_actors', type=int, default=2,
+    parser.add_argument('--N', type=int, default=2,
                         help='Number of actors')
     parser.add_argument('--batch_size', type=int, default=32,
                         help='Batch size')
@@ -68,7 +68,7 @@ def parse_args():
     # Additional parameters
     parser.add_argument('--num_envs', type=int, help='Number of environments')
     parser.add_argument('--action_size', type=int, help='Size of action space')
-    parser.add_argument('--N', type=int, default=2,
+    parser.add_argument('--NGUN', type=int, default=10,
                         help='N parameter')
     parser.add_argument('--kernel_epsilon', type=float, default=0.0001,
                         help='Kernel epsilon parameter')

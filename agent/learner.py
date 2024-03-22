@@ -80,7 +80,17 @@ class Learner:
         model = Model(self.N, self.action_size)
 
         # episodic novelty module / lifelong novelty module
-        self.episodic_novelty = EpisodicNovelty(args.N, self.action_size)
+        self.episodic_novelty = EpisodicNovelty(
+                 self.N,
+                 self.action_size,
+                 args.NGUN,
+                 self.lr,
+                 args.kernel_epsilon,
+                 cluster_distance=args.cluster_distance,
+                 max_similarity=args.max_similarity,
+                 c_constant=args.c_constant,
+                 device=self.device)
+        
         self.lifelong_novelty = LifelongNovelty(args.N)
 
         self.model = nn.DataParallel(deepcopy(model)).cuda()

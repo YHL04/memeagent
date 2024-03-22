@@ -17,6 +17,17 @@ class EpisodicNovelty:
     Different from original implementation, index resets after n timesteps
     """
 
+    # def __init__(self,
+    #              num_envs,
+    #              action_size,
+    #              N=10,
+    #              lr=5e-4,
+    #              kernel_epsilon=0.0001,
+    #              cluster_distance=0.008,
+    #              max_similarity=8.0,
+    #              c_constant=0.001,
+    #              device="cuda"
+    #              ):
     def __init__(self,
                  num_envs,
                  action_size,
@@ -27,7 +38,7 @@ class EpisodicNovelty:
                  max_similarity=8.0,
                  c_constant=0.001,
                  device="cuda"
-                 ):
+                 ):        
 
         self.num_envs = num_envs
 
