@@ -2,4 +2,6 @@
 
 venv/
 .idea/
+saved/
+logs/
 
