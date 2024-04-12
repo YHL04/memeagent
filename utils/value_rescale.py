@@ -39,10 +39,3 @@ def inv_rescale(x, eps=1e-3):
     """
     z = torch.sqrt(1 + 4 * eps * (eps + 1 + torch.abs(x))) / 2 / eps - 1 / 2 / eps
     return torch.sign(x) * (torch.square(z) - 1)
-
-    # NGU paper is wrong
-    # numerator = torch.sqrt(1 + 4 * eps * (torch.abs(z) + 1 + eps)) - 1
-    # denominator = 2 * eps
-
-    # z = torch.sign(z) * ((numerator / denominator) - 1)
-    # return z
