@@ -1,0 +1,32 @@
+
+
+
+both per and without per go down before fixing buffer not increasing
+
+eval_every 100 plateaus at 3 while eval_every 1 diverges, possibly due to prioritized experience replay
+only sampling newest and not decorrelating experiences
+
+trying mean error to see if experiences are decorrelated
+mean error still converge to 0
+max error still converge to 0
+
+loss curve smoother with old rescale setup but still crashes
+spikes during target network update and initially reward alternates between 0 and 1 during target network updates
+
+both loss curves look wrong, testing with 1 target network updates and no rescale
+
+
+OBSERVATIONS:
+
+loss curves both seems wrong
+loss curves smoother without rescale
+loss curves smoother with old rescale
+loss curves ragged with new rescale
+
+
+POTENTIAL PROBLEMS CAUSING THIS PROBLEM:
+
+policy churn
+bug in retrace
+bug in rescale
+

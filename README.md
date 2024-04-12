@@ -1,39 +1,51 @@
-# MEME (Efficient Memory-based Exploration agent)
-An unofficial implementation of <a href="https://arxiv.org/pdf/2209.07550.pdf">MEME</a> (Efficient Memory-based Exploration agent) from DeepMind
+# Agent 57
+An unofficial implementation of Agent57 for Atari from DeepMind
 
-## Learning Curves (Breakout)
+## Breakout Test Run
 
-<img src="https://github.com/YHL04/memeagent/blob/main/learning_curves/breakout_test_run.png" alt="drawing" width="600"/>
+<img src="https://github.com/YHL04/agent57/blob/main/learning_curves/breakout_test_run.png" alt="drawing" width="600"/>
 
-## TODO
+## Features
 
-- [X] Fix prioritized experience replay
-- [X] Fix burnin functionality
-- [X] Fix code for big burnin and rollout hyperparameter
+- [X] Double Q Network
+- [X] Dueling Network Architecture
+- [X] Distributed Architecture (Multi Actor)
+- [X] Update new recurrent states after training step
+- [X] LSTM Recurrence
+- [X] Episodic Novelty Module  
+- [X] Lifelong Novelty Module
+- [X] Separate Nets for extrinsic and intrinsic reward
+- [X] Retrace (Replaced N-Step)
+- [X] Reward value rescaling
+- [X] Batched Inference (SEEDRL)
+- [X] Adaptive Exploration with meta-controller
+- [X] Prioritized Experience Replay
 - [ ] Find bugs and test for correctness
 
-## Improvements
 
-- [X] Bootstrapping with online network.
-- [X] Target computation with tolerance.
-- [X] Loss and priority normalization.
-- [X] Cross-mixture training.
-- [x] Normalizer-free torso network.
-- [X] Shared torso with combined loss.
-- [X] Robustifying behavior via policy distillation.
+## Relevant Papers
 
-## Agent57 Original Code
+Recurrent Experience Replay in Distributed Reinforcement Learning (R2D2): 
 
-[![Readme Card](https://github-readme-stats.vercel.app/api/pin/?username=YHL04&repo=agent57)](https://github.com/YHL04/agent57)
 
-## Citations
+https://openreview.net/pdf?id=r1lyTjAqYX
 
-```bibtex
-@article{kapturowski2022human,
-  title={Human-level Atari 200x faster},
-  author={Kapturowski, Steven and Campos, V{\'\i}ctor and Jiang, Ray and Raki{\'c}evi{\'c}, Nemanja and van Hasselt, Hado and Blundell, Charles and Badia, Adri{\`a} Puigdom{\`e}nech},
-  journal={arXiv preprint arXiv:2209.07550},
-  year={2022}
-}
-```
+
+Never Give Up: Learning Directed Exploration Strategies (NGU): 
+
+
+https://arxiv.org/pdf/2002.06038.pdf
+
+
+Agent57: Outperforming the Atari Human Benchmark (Agent57): 
+
+
+https://arxiv.org/pdf/2003.13350.pdf
+
+
+## Helpful Repositories
+
+ [![Readme Card](https://github-readme-stats.vercel.app/api/pin/?username=michaelnny&repo=deep_rl_zoo)](https://github.com/michaelnny/deep_rl_zoo)
+ 
+ [![Readme Card](https://github-readme-stats.vercel.app/api/pin/?username=deepmind&repo=trfl)](https://github.com/deepmind/trfl)
 

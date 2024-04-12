@@ -25,16 +25,15 @@ class SumTree:
 
     """
 
-    def __init__(self, size, fill_value=0):
+    def __init__(self, size, fill_value=0, scale=1_000_000):
         """make sure size is powers of two and pad extra spots, not an optimal solution"""
-        fill_value = round(fill_value * 1000000)
-
         orig_size = size
         size = 2 ** math.ceil(math.log(size, 2))
 
         self.size = size
         self.orig_size = orig_size
         self.tree = np.zeros((2 * size - 1,), dtype=np.int64)
+        self.scale = scale
 
         if fill_value != 0:
             for t in range(orig_size):
@@ -55,11 +54,11 @@ class SumTree:
             assert 0 == (self.tree[parent] - (self.tree[left] + self.tree[right])), error
 
     def total(self):
-        return self.tree[0] / 1000000
+        return self.tree[0] / self.scale
 
     def update(self, data_idx, p):
         """changes tree[idx] to p and then propagate change through the tree"""
-        p = round(p * 1000000)
+        p = round(p * self.scale)
 
         # convert data idx to tree idx
         idx = data_idx + self.size - 1
@@ -80,7 +79,7 @@ class SumTree:
 
     def get(self, s):
         """get index of data and its priority"""
-        s = round(s * 1000000)
+        s = round(s * self.scale)
 
         assert s != 0
         assert s < self.tree[0]
@@ -88,8 +87,8 @@ class SumTree:
         data_idx = idx - self.size + 1
 
         assert self.tree[idx] != 0
-        p = self.tree[idx] / 1000000
-        s = s / 1000000
+        p = self.tree[idx] / self.scale
+        s = s / self.scale
         return data_idx, p, s
 
     def retrieve(self, idx, s):

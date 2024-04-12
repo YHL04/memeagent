@@ -17,19 +17,19 @@ class Actor:
 
     Args:
         learner_rref (RRef): Learner RRef to reference the learner
-        id (int): ID of the actor representing which policy ~ N policies
+        id (int): ID of the actor
         env_name (string): Environment name
         beta (float): initial beta value of actor
         discount (float): initial discount value of actor
     """
 
-    def __init__(self, learner_rref, id, env_name, T):
+    def __init__(self, learner_rref, id, env_name):
         self.learner_rref = learner_rref
         self.id = id
         self.arm = id
 
         self.env = Env(env_name)
-        self.local_buffer = LocalBuffer(T)
+        self.local_buffer = LocalBuffer()
 
         self.count = 0
 
@@ -41,6 +41,7 @@ class Actor:
         Args:
             obs (List[np.array]): frames with shape (batch_size, n_channels, h, w)
             state (List[np.array]): recurrent states with shape (batch_size, state_len, d_model)
+            beta (List[np.array]): array of betas associated with each obs
 
         Returns:
             Future() object that when used with .wait(), halts until value is ready from
@@ -55,6 +56,7 @@ class Actor:
         to call return_episode to return Episode object to learner for training.
 
         Args:
+            id (int): Actor ID
             episode (Episode): Finished episode
 
         Returns:
@@ -68,10 +70,6 @@ class Actor:
         """
         Main actor training loop, calls queue_request to get action and
         return_episode to return finished episode
-
-        TODO:
-            finish batched actor
-            adapt learner to batched actor
         """
 
         while True:
@@ -86,16 +84,15 @@ class Actor:
 
                 next_obs, reward, done = self.env.step(action)
 
-                self.local_buffer.add(obs, action, prob, reward, intr, tuple(map(tosqueeze, state)))
+                self.local_buffer.add(obs, action, prob, reward, intr,
+                                      tuple(map(tosqueeze, state))
+                                      )
 
                 obs = next_obs
                 state = next_state
 
-            episode = self.local_buffer.finish(
-                self.arm,
-                time.time()-start,
-                "actor{}_{}".format(self.id, self.count)
-            )
+            episode = self.local_buffer.finish(time.time()-start, self.arm)
             self.arm = self.return_episode(episode).wait()
 
             self.count += 1
+

@@ -13,15 +13,16 @@ def get_action(model, obs, state, device="cuda"):
     obs = torch.tensor(np.stack(obs), dtype=torch.float32, device=device).unsqueeze(0) / 255.
 
     q, pi, state = model(obs, state)
-    return torch.argmax(pi[:, 0, :]).squeeze().item(), state
+    q, pi = q[:, 0, :], pi[:, 0, :]
+    return torch.argmax(pi).squeeze().item(), state
 
 
 def main(env_name, path, device):
     env = Env(env_name, render_mode="human")
     model = nn.DataParallel(Model(N=2, action_size=env.action_size)).to(device)
-    model.load_state_dict(torch.load(path))
 
     while True:
+        model.load_state_dict(torch.load(path))
         obs = env.reset()
         state = (torch.zeros((1, 512)).to(device), torch.zeros((1, 512)).to(device))
 

@@ -10,13 +10,16 @@ from utils import RunningMeanStd
 
 class LifelongNovelty:
 
-    def __init__(self, lr=5e-4, L=5, device="cuda"):
+    def __init__(self,
+                 lr=5e-4,
+                 L=5,
+                 device="cuda"):
 
-        self.predictor = ConvNet(512).to(device)
-        self.target = ConvNet(512).to(device)
+        self.predictor = ConvNet().to(device)
+        self.target = ConvNet().to(device)
 
-        self.eval_predictor = ConvNet(512).to(device)
-        self.eval_target = ConvNet(512).to(device)
+        self.eval_predictor = ConvNet().to(device)
+        self.eval_target = ConvNet().to(device)
 
         self.opt = optim.Adam(self.predictor.parameters(), lr=lr)
 

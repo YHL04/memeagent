@@ -2,7 +2,6 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 
 import torch.multiprocessing as mp
@@ -23,9 +22,8 @@ from .replaybuffer import ReplayBuffer
 
 from models import Model
 from curiosity import EpisodicNovelty, LifelongNovelty
-from utils import UCB, RunningMeanStd, \
-    compute_loss, \
-    compute_policy_loss, \
+from utils import UCB, RunningMeanStd,\
+    compute_soft_watkins_loss, compute_policy_loss, \
     get_betas, get_discounts, \
     totensor, toconcat
 
@@ -48,14 +46,9 @@ class Learner:
     epsilon_decay = 0.0001
 
     lr = 1e-4
-    weight_decay = 0.05
-    adam_betas = (0.9, 0.999)
-    adam_eps = 1e-8
-
     beta = 0.3
     discount_max = 0.997
     discount_min = 0.99
-    tau = 0.25
 
     update_every = 400
     save_every = 400
@@ -65,17 +58,18 @@ class Learner:
     bandit_beta = 1.0
     bandit_epsilon = 0.5
 
-    def __init__(self, env_name, N, B, size, burnin, rollout):
+    def __init__(self, env_name, N, size, B, burnin, rollout):
         torch.manual_seed(0)
         np.random.seed(0)
         random.seed(0)
 
-        self.N, self.B = N, B
         self.size = size
+        self.B = B
+        self.N = N
 
         # models
         self.action_size = gym.make(env_name).action_space.n
-        model = Model(self.N, self.action_size)
+        model = Model(N=self.N, action_size=self.action_size)
 
         # episodic novelty module / lifelong novelty module
         self.episodic_novelty = EpisodicNovelty(N, self.action_size)
@@ -100,12 +94,6 @@ class Learner:
         self.T = burnin + rollout
 
         # optimizer and loss functions
-        # self.opt = optim.Adam(self.model.parameters(),
-        #                       lr=self.lr,
-        #                       betas=self.adam_betas,
-        #                       eps=self.adam_eps,
-        #                       weight_decay=self.weight_decay
-        #                       )
         self.opt = optim.Adam(self.model.parameters(), lr=self.lr)
 
         # queues
@@ -120,10 +108,7 @@ class Learner:
         self.batch_data = []
 
         # start replay buffer
-        self.replay_buffer = ReplayBuffer(max_frames=size,
-                                          B=B,
-                                          T=burnin+rollout,
-                                          N=N,
+        self.replay_buffer = ReplayBuffer(size=size, B=B, T=burnin+rollout, N=N,
                                           sample_queue=self.sample_queue,
                                           batch_queue=self.batch_queue,
                                           priority_queue=self.priority_queue
@@ -148,16 +133,14 @@ class Learner:
 
         self.actor_rref = self.spawn_actors(learner_rref=RRef(self),
                                             env_name=env_name,
-                                            N=N,
-                                            T=self.T
+                                            N=self.N
                                             )
 
         self.running_errors = [RunningMeanStd() for _ in range(N)]
-
         self.updates = 0
 
     @staticmethod
-    def spawn_actors(learner_rref, env_name, N, T):
+    def spawn_actors(learner_rref, env_name, N):
         """
         Start actor by calling actor.remote().run()
         Actors communicate with learner through rpc and RRef
@@ -175,7 +158,7 @@ class Learner:
         for i in range(N):
             actor_rref = rpc.remote(f"actor{i}",
                                     Actor,
-                                    args=(learner_rref, i, env_name, T),
+                                    args=(learner_rref, i, env_name),
                                     timeout=0
                                     )
             actor_rref.remote().run()
@@ -224,7 +207,7 @@ class Learner:
             id (B,): actor IDs
             obs (B, c, h, w): batched observation
             state (Tuple(B, dim)): batched recurrent state
-            arm (B,): each actor's bandit arm
+            beta (B,): each actor beta values
 
         Returns:
             action (B,): action indices
@@ -238,7 +221,7 @@ class Learner:
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
         with self.lock_model:
-            _, pi, state = self.eval_model(obs, state)
+            q, pi, state = self.eval_model(obs, state)
             pi = pi[torch.arange(B), arm]
 
             intr_e = self.episodic_novelty.get_reward(id, obs)
@@ -252,7 +235,7 @@ class Learner:
             return action, prob, state, intr
 
         # get action and probability of that action according to Agent57 (pg 19)
-        action = torch.argmax(pi, dim=-1)
+        action = torch.argmax(pi, dim=-1).squeeze()
         prob = torch.full_like(action, 1 - (self.epsilon * ((self.action_size - 1) / self.action_size)))
 
         return action, prob, state, intr
@@ -266,19 +249,17 @@ class Learner:
             id (List(int)): ID of actor
             obs (List(np.array)): A list of observations in numpy.uint8
             state (List(Tuple(np.array)): A list of tuples of recurrent states in numpy
-            arm (List(float)): The bandit arm of the actor
+            beta (List(float)): The beta value of the actor
 
         Returns:
             action (np.array)
             prob (np.array)
             state (List(Tuple(np.array))
-            arm (int)
+            beta (int)
         """
-        # state1 = List((h, c)) to batched (h, c)
+        # state = List((h, c)) to batched (h, c)
 
         id = torch.tensor(id, device=self.device)
-        arm = torch.tensor(arm, device=self.device)
-
         obs = torch.tensor(np.stack(obs), dtype=torch.float32, device=self.device) / 255.
 
         # list of tuples to size 2 tuple of lists
@@ -286,6 +267,7 @@ class Learner:
         # concatenate lists inside tuple
         state = tuple(map(totensor, tuple(map(toconcat, state))))
         # tuple of two batched tensors
+        arm = torch.tensor(arm, device=self.device)
 
         action, prob, state, intr = self.get_policy(id, obs, state, arm)
 
@@ -328,6 +310,13 @@ class Learner:
 
                         self.return_rpcs[i] = None
 
+                # if self.await_rpc:
+                #     self.await_rpc = False
+                #
+                #     future = self.future2
+                #     self.future2 = Future()
+                #     future.set_result(None)
+
                 if self.request_rpcs_count == self.N:
                     results = self.get_action(*list(map(list, (zip(*self.request_rpcs)))))
                     self.request_rpcs = [None for _ in range(self.N)]
@@ -337,6 +326,24 @@ class Learner:
                         future = self.request_futures[i]
                         self.request_futures[i] = Future()
                         future.set_result(result)
+
+                # clear self.request_futures to answer requests
+                # for i in range(len(self.request_rpcs)):
+                #     if self.request_rpcs[i] is not None:
+                #         results = self.get_action(*self.request_rpcs[i])
+                #         self.request_rpcs[i] = None
+                #
+                #         future = self.request_futures[i]
+                #         self.request_futures[i] = Future()
+                #         future.set_result(results)
+
+                # if self.pending_rpc is not None:
+                #     results = self.get_action(*self.pending_rpc)
+                #     self.pending_rpc = None
+                #
+                #     future = self.future1
+                #     self.future1 = Future()
+                #     future.set_result(results)
 
     def prepare_data(self):
         """
@@ -377,7 +384,7 @@ class Learner:
         An update step. Performs a training step, update new recurrent states,
         hard update target model occasionally and transfer weights to eval model
         """
-        loss, new_states, error = self.train_step(
+        loss, p_loss, new_states, error = self.train_step(
             obs=block.obs.cuda(),
             actions=block.actions.cuda(),
             probs=block.probs.cuda(),
@@ -399,10 +406,10 @@ class Learner:
         states2 = torch.stack(states2).transpose(0, 1).cpu().numpy()
         new_states = np.stack([states1, states2], 2)
 
-        error = error.sum(0).cpu().numpy()
+        error = torch.abs(error).sum(0).mean(-1).cpu().numpy().squeeze()
 
         # update new states to buffer
-        self.priority_queue.put((block.idxs, new_states, error, loss, intr_loss, self.epsilon))
+        self.priority_queue.put((block.idxs, new_states, error, loss, p_loss, intr_loss, self.epsilon))
 
         # hard update target model
         if self.updates % self.update_every == 0:
@@ -428,14 +435,14 @@ class Learner:
         Gradients are cached for n_accumulate steps before optimizer.step()
 
         Args:
-            obs (T+1, B, channels, h, w]): tokens
-            actions (T+1, B): actions
-            probs (T+1, B): probs
-            extr (T, B): extrinsic rewards
-            intr (T, B): extrinsic rewards
+            obs (block+1, B, channels, h, w]): tokens
+            actions (block+1, B): actions
+            probs (block+1, B): probs
+            extr (block, B): extrinsic rewards
+            intr (block, B): extrinsic rewards
             states (B, dim): recurrent states
-            dones (T+1, B): boolean indicating episode termination
-            arms (B,): arm index of each batch sample
+            dones (block+1, B): boolean indicating episode termination
+            arms (block, B): arm of each actor
 
         Returns:
             loss (float): Loss of critic model
@@ -456,9 +463,9 @@ class Learner:
             for t in range(self.burnin, self.T+1):
                 new_states.append((state[0].detach(), state[1].detach()))
 
-                target_q_, target_pi_, state = self.target_model(obs[t], state)
-                target_q.append(target_q_)
-                target_pi.append(target_pi_)
+                _target_q, _target_pi, state = self.target_model(obs[t], state)
+                target_q.append(_target_q)
+                target_pi.append(_target_pi)
 
             target_q = torch.stack(target_q)
             target_pi = torch.stack(target_pi)
@@ -468,54 +475,58 @@ class Learner:
         state = (states[0].detach().clone(), states[1].detach().clone())
 
         for t in range(self.burnin):
-            _, _, state = self.model(obs[t], state)
+            _, state = self.model(obs[t], state)
 
         q, pi = [], []
         for t in range(self.burnin, self.T+1):
-            q_, pi_, state = self.model(obs[t], state)
-            q.append(q_)
-            pi.append(pi_)
+            _q, _pi, state = self.model(obs[t], state)
+            q.append(_q)
+            pi.append(_pi)
 
         q = torch.stack(q)
         pi = torch.stack(pi)
 
-        pi = F.softmax(torch.log(pi) / self.tau, dim=-1)
-        target_pi = F.softmax(torch.log(target_pi) / self.tau, dim=-1)
+        # cange from q to target_q according to Agent57 (pg 17) "where pi(a|x) is the target policy."
+        # pi_t = F.softmax(target_q, dim=-1)
 
-        probs = probs.unsqueeze(-1).repeat(1, 1, self.N)
+        # pi = pi / self.tau
+        # target_pi = target_pi / self.tau
+
+        # probs = probs.unsqueeze(-1).repeat(1, 1, self.N)
         rewards = extr.unsqueeze(-1) + self.betas.view(1, 1, self.N).to(extr.device) * intr.unsqueeze(-1)
         discount_t = (~dones).float().unsqueeze(-1) * self.discounts.view(1, 1, self.N).to(dones.device)
         actions = actions.unsqueeze(-1).repeat(1, 1, self.N)
 
-        q_loss, error = compute_loss(
+        self.opt.zero_grad()
+
+        q_loss, q_error = compute_soft_watkins_loss(
             q_t=q,
             qT_t=target_q[:-1],
             a_t=actions[self.burnin:-1],
             a_t1=actions[self.burnin+1:],
             r_t=rewards[self.burnin:],
-            pi_t1=target_pi[1:],
-            mu_t1=probs[self.burnin+1:],
+            pi_t1=pi[self.burnin+1:],
             discount_t=discount_t[self.burnin:],
-            arms=arms,
+            arms=arms[self.burnin:],
             running_errors=self.running_errors,
             is_weights=is_weights,
         )
+        q_loss.backward()
 
         p_loss = compute_policy_loss(
             q_t=q,
             pi_t=pi,
             piT_t=target_pi
         )
+        p_loss.backward()
 
-        loss = q_loss + p_loss
-
-        self.opt.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5.)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.1)
         self.opt.step()
 
-        loss = loss.item()
-        return loss, new_states, error
+        q_loss = q_loss.item()
+        p_loss = p_loss.item()
+
+        return q_loss, p_loss, new_states, q_error
 
     def train_novelty_step(self, obs, actions):
         emb_loss = self.train_emb_step(obs, actions)
