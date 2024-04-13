@@ -156,7 +156,7 @@ def compute_soft_watkins_loss(q_t, qT_t, a_t, a_t1, r_t, pi_t1, discount_t, arms
     return loss, td_error.detach()
 
 
-def compute_policy_loss(q_t, pi_t, piT_t, c_kl=0.5, eps=1e-4):
+def compute_policy_loss(q_t, pi_t, piT_t, is_weights, c_kl=0.5, eps=1e-4):
     """
     Policy Distillation (D). To combat policy churn according to MEME paper.
     """
@@ -165,6 +165,7 @@ def compute_policy_loss(q_t, pi_t, piT_t, c_kl=0.5, eps=1e-4):
     assert q_t.shape == (T, B, N, action_dim)
     assert pi_t.shape == (T, B, N, action_dim)
     assert piT_t.shape == (T, B, N, action_dim)
+    assert is_weights.shape == (B,)
 
     assert not torch.isnan(q_t).any(), q_t
     assert not torch.isnan(pi_t).any(), pi_t
@@ -183,7 +184,9 @@ def compute_policy_loss(q_t, pi_t, piT_t, c_kl=0.5, eps=1e-4):
     # mask = (F.kl_div(F.log_softmax(piT_t, dim=-1), F.log_softmax(pi_t, dim=-1), reduction="none", log_target=True
     #                  ).mean(-1) <= c_kl)
     # p_loss = torch.where(mask, p_loss, 0.)
-    p_loss = p_loss.sum(0).mean()
+    p_loss = p_loss.sum(0).mean(-1)
+    p_loss *= is_weights
+    p_loss = p_loss.mean()
 
     return p_loss
 

@@ -23,6 +23,7 @@ class Logger:
         self.intrinsic = 0
         self.epsilon = 0
         self.arm = 0
+        self.replay_ratio = 0
 
         self.start = time.time()
 
@@ -33,16 +34,17 @@ class Logger:
         elapsed_time = time.time() - self.start
 
         if self.loss != 0:
-            self.file.write('{}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n'.format(elapsed_time,
-                                                                              self.total_updates,
-                                                                              self.total_frames,
-                                                                              self.loss,
-                                                                              self.p_loss,
-                                                                              self.intr_loss,
-                                                                              self.reward,
-                                                                              self.intrinsic,
-                                                                              self.epsilon,
-                                                                              self.arm))
+            self.file.write('{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n'.format(elapsed_time,
+                                                                                  self.total_updates,
+                                                                                  self.total_frames,
+                                                                                  self.loss,
+                                                                                  self.p_loss,
+                                                                                  self.intr_loss,
+                                                                                  self.reward,
+                                                                                  self.intrinsic,
+                                                                                  self.epsilon,
+                                                                                  self.arm,
+                                                                                  self.replay_ratio))
             self.file.flush()
 
         print('Elapsed: {:>8.4f} '
@@ -55,6 +57,7 @@ class Logger:
               'Intrinsic: {:>10.4f} '
               'Epsilon: {:>8.3f} '
               'Arm: {:>8.3f} '
+              'ReplayRatio: {:>8.3f} '
               .format(elapsed_time,
                       self.total_updates,
                       self.total_frames,
@@ -64,7 +67,8 @@ class Logger:
                       self.reward,
                       self.intrinsic,
                       self.epsilon,
-                      self.arm
+                      self.arm,
+                      self.replay_ratio
                       ),
               flush=True)
 

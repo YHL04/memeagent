@@ -100,7 +100,7 @@ class ReplayBuffer:
         self.logger = Logger()
 
         # Variables
-        self.ptr, self.count, self.frames, self.max_error = 0, 0, 0, 1
+        self.ptr, self.count, self.frames, self.max_error, self.updates = 0, 0, 0, 1, 0
 
     def __len__(self):
         return self.count
@@ -308,6 +308,7 @@ class ReplayBuffer:
             idxs (List[List[b_idx, t_idx]]): indices of states
         """
         assert states.shape == (self.B, self.T+1, 2, 512)
+        self.updates += 1
 
         with self.lock:
 
@@ -317,6 +318,7 @@ class ReplayBuffer:
             self.logger.p_loss = p_loss
             self.logger.intr_loss = intr_loss
             self.logger.epsilon = epsilon
+            self.logger.replay_ratio = ((self.B*self.T+1)*self.updates) / self.frames
 
             for (idx, state, error) in zip(idxs, states, errors):
                 self.sumtree.update(idx, self.get_priority(error))

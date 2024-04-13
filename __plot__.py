@@ -22,7 +22,8 @@ data = pd.read_csv(latestfile,
                           "Reward",
                           "Intrinsic",
                           "Epsilon",
-                          "Beta"]
+                          "Arm",
+                          "ReplayRatio"]
                    )
 
 data["Temp"] = np.arange(len(data["Reward"])) // 50

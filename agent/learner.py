@@ -516,7 +516,8 @@ class Learner:
         p_loss = compute_policy_loss(
             q_t=q,
             pi_t=pi,
-            piT_t=target_pi
+            piT_t=target_pi,
+            is_weights=is_weights
         )
         p_loss.backward()
 
